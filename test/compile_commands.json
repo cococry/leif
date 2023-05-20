@@ -1,0 +1,15 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-I../",
+      "-o",
+      "../bin/test",
+      "test.c"
+    ],
+    "directory": "/home/cococry/dev/leif/test",
+    "file": "/home/cococry/dev/leif/test/test.c",
+    "output": "/home/cococry/dev/leif/bin/test"
+  }
+]
