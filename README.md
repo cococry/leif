@@ -1,2 +1,2 @@
 # Leif
-Minimal GUI Library for Xt
+Minimal GUI Library for X
