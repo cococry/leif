@@ -3,6 +3,7 @@
     "arguments": [
       "/usr/bin/gcc",
       "-c",
+      "-I/usr/include/X11",
       "-o",
       "bin/leif.o",
       "leif.c"
