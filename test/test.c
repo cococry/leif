@@ -29,8 +29,9 @@ int main() {
 
     while(!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
-        lf_draw_rect((LfVec2i){400.0f, 400.0f}, (LfVec2i){200, 200}, (LfVec4f){1.0f, 0.0f, 0.0f, 1.0f});
-        lf_draw_rect((LfVec2i){0.0f, 0.0f}, (LfVec2i){100, 100}, (LfVec4f){0.0f, 1.0f, 0.0f, 1.0f});
+        glClearColor(0.2f, 0.8f, 0.3f, 1.0f);
+        lf_draw_image((LfVec2i){500.0f, 450.0f}, (LfVec2i){256, 196}, (LfVec4f){1.0f, 1.0f, 1.0f, 1.0f}, "../test/textures/logo.png", false, TEX_FILTER_LINEAR);
+        lf_draw_rect((LfVec2i){0.0f, 0.0f}, (LfVec2i){200, 200}, (LfVec4f){1.0f, 0.0f, 1.0f, 1.0f});
         lf_flush();
         glfwPollEvents();
         glfwSwapBuffers(window);

@@ -1,5 +1,6 @@
 #include "leif.h"
 #include <glad/glad.h>
+#include <stb_image.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,22 +29,34 @@
 #define LF_ASSERT(cond, ...)
 #endif // _DEBUG
 
+#define MAX_VERT_COUNT_BATCH 10000
+#define MAX_TEX_COUNT_BATCH 32
+
 // -- Struct Defines ---
 typedef struct {
     uint32_t id;
 } LfShader;
 
 typedef struct {
+    uint32_t id;
+    const char* filepath;
+} LfTexture;
+
+typedef struct {
     LfVec2f pos;
     LfVec4f color;
+    LfVec2f texcoord;
+    float tex_index;
 } Vertex;
 
 typedef struct {
     LfShader shader;
     uint32_t vao, vbo;
-    uint32_t vert_count, vert_cap;
-    Vertex* verts;
+    uint32_t vert_count;
+    Vertex verts[MAX_VERT_COUNT_BATCH];
     LfVec4f vert_pos[6];
+    LfTexture textures[MAX_TEX_COUNT_BATCH];
+    uint32_t tex_index;
 } RenderState;
 
 typedef struct {
@@ -56,7 +69,10 @@ typedef struct {
 static uint32_t                 shader_create(GLenum type, const char* src);
 static LfShader                 shader_prg_create(char* vert_src, char* frag_src);
 static void                     shader_set_mat(LfShader prg, const char* name, LfMat4 mat); 
+
 static void                     renderer_init();
+
+static LfTexture                tex_create(const char* filepath, bool flip, LfTextureFiltering filter);
 
 // --- Linear Algebra - Math ---
 static LfMat4                   mat_identity(); 
@@ -133,16 +149,16 @@ LfShader shader_prg_create(char* vert_src, char* frag_src) {
 static LfState state;
 
 void renderer_init() {
-    state.render.vert_cap = 10000;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     state.render.vert_count = 0;
-    state.render.verts = malloc(sizeof(Vertex) * state.render.vert_cap);
 
     glCreateVertexArrays(1, &state.render.vao);
     glBindVertexArray(state.render.vao);
     
     glCreateBuffers(1, &state.render.vbo);
     glBindBuffer(GL_ARRAY_BUFFER, state.render.vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * state.render.vert_cap, NULL, 
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * MAX_VERT_COUNT_BATCH, NULL, 
         GL_DYNAMIC_DRAW);
     
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), NULL);
@@ -150,15 +166,27 @@ void renderer_init() {
     
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)(sizeof(float) * 2));
     glEnableVertexAttribArray(1);
+    
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)(sizeof(float) * 6));
+    glEnableVertexAttribArray(2);
+
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)(sizeof(float) * 8));
+    glEnableVertexAttribArray(3);
 
     char* vert_src = 
         "#version 460 core\n"
         "layout (location = 0) in vec2 a_pos;\n"
         "layout (location = 1) in vec4 a_color;\n"
+        "layout (location = 2) in vec2 a_texcoord;\n"
+        "layout (location = 3) in float a_tex_index;\n"
         "uniform mat4 u_proj;\n"
         "out vec4 v_color;\n"
+        "out vec2 v_texcoord;\n"
+        "out float v_tex_index;\n"
         "void main() {\n"
             "v_color = a_color;\n"
+            "v_texcoord = a_texcoord;\n"
+            "v_tex_index = a_tex_index;\n"
             "gl_Position = u_proj * vec4(a_pos.x, a_pos.y, 0.0f, 1.0);\n"
         "}\n";
 
@@ -166,8 +194,15 @@ void renderer_init() {
         "#version 460 core\n"
         "out vec4 o_color;\n"
         "in vec4 v_color;\n"
+        "in vec2 v_texcoord;\n"
+        "in float v_tex_index;\n"
+        "uniform sampler2D u_textures[32];\n"
         "void main() {\n"
-        "   o_color = v_color;\n"
+        "   if(v_tex_index == -1) {\n"
+        "     o_color = v_color;\n"
+        "   } else {\n"
+        "     o_color = texture(u_textures[int(v_tex_index)], v_texcoord) * v_color;\n"
+        "   }\n"
         "}\n";
 
     state.render.shader = shader_prg_create(vert_src, frag_src);
@@ -184,8 +219,51 @@ void renderer_init() {
     glUseProgram(state.render.shader.id);
     LfMat4 proj = orth_mat(0.0f, (float)state.dsp_w, (float)state.dsp_h, 0.0f);
     shader_set_mat(state.render.shader, "u_proj", proj);
+
+    int32_t tex_slots[MAX_TEX_COUNT_BATCH];
+    for(uint32_t i = 0; i < MAX_TEX_COUNT_BATCH; i++) 
+        tex_slots[i] = i;
+
+    glUniform1iv(glGetUniformLocation(state.render.shader.id, "u_textures"), MAX_TEX_COUNT_BATCH, tex_slots);
 }
 
+static LfTexture tex_create(const char* filepath, bool flip, LfTextureFiltering filter) {
+    LfTexture tex;
+    tex.filepath = filepath;
+    int32_t width, height, channels;
+    stbi_set_flip_vertically_on_load(flip);
+    stbi_uc* data = stbi_load(filepath, &width, &height, &channels, 0);
+
+    if(!data) {
+        LF_ERROR("Failed to load texture file at '%s'.", filepath);
+        return tex;
+    }
+    GLenum internal_format = (channels == 4) ? GL_RGBA8 : GL_RGB8;
+    GLenum data_format = (channels == 4) ? GL_RGBA : GL_RGB;
+    
+    LF_ASSERT(internal_format & data_format, "Texture file at '%s' is using an unsupported format.", filepath);
+
+    glCreateTextures(GL_TEXTURE_2D, 1, &tex.id);
+    glTextureStorage2D(tex.id, 1, internal_format, width, height);
+    
+    switch(filter) {
+        case TEX_FILTER_LINEAR:
+            glTexParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            break;
+        case TEX_FILTER_NEAREST:
+            glTexParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            break;
+    }
+    glTextureParameteri(tex.id, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTextureParameteri(tex.id, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTextureSubImage2D(tex.id, 0, 0, 0, width, height, data_format, GL_UNSIGNED_BYTE, data);
+    
+    stbi_image_free(data);
+
+    return tex;
+}
 void shader_set_mat(LfShader prg, const char* name, LfMat4 mat) {
     glUniformMatrix4fv(glGetUniformLocation(prg.id, name), 1, GL_FALSE, (float*)&mat.values);
 }
@@ -388,8 +466,6 @@ LfVec4f vec4f_mul(LfVec4f v1, LfVec4f v2) {
                         v1.values[2] * v2.values[2], 
                         v1.values[3] * v2.values[3]);
 }
-
-
  
 // --- Public API Functions ---
 //
@@ -410,6 +486,15 @@ void lf_resize_display(uint32_t display_width, uint32_t display_height) {
 
 
 void lf_draw_rect(LfVec2i pos, LfVec2i size, LfVec4f color) {
+    LfVec2f texcoords[6] = {
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){0.0f, 1.0f},
+        (LfVec2f){1.0f, 1.0f},
+
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){1.0f, 1.0f},
+        (LfVec2f){1.0f, 0.0f},
+    };
     LfMat4 transform = mat_mul(
         scale_mat(mat_identity(), vec3f_create(size.values[0], size.values[1], 0.0f)),
         translate_mat(mat_identity(), vec3f_create((float)pos.values[0], (float)pos.values[1], 0.0f))
@@ -419,6 +504,45 @@ void lf_draw_rect(LfVec2i pos, LfVec2i size, LfVec4f color) {
         state.render.verts[state.render.vert_count].pos = vec2f_create(pos_mat.values[0], 
             pos_mat.values[1]);
         state.render.verts[state.render.vert_count].color = color;
+        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
+        state.render.verts[state.render.vert_count].tex_index = -1.0f;
+        state.render.vert_count++;
+    } 
+}
+
+void lf_draw_image(LfVec2i pos, LfVec2i size, LfVec4f color, const char* filepath, bool flip, LfTextureFiltering filter) {
+    LfVec2f texcoords[6] = {
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){0.0f, 1.0f},
+        (LfVec2f){1.0f, 1.0f},
+
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){1.0f, 1.0f},
+        (LfVec2f){1.0f, 0.0f},
+    };
+    float tex_index = -1.0f;
+    for(uint32_t i = 0; i < state.render.tex_index; i++) {
+        if(state.render.textures[i].filepath == filepath) {
+            tex_index = (float)i;
+            break;
+        }
+    }
+    if(tex_index == -1.0f) {
+        tex_index = (float)state.render.tex_index;
+        LfTexture tex = tex_create(filepath, flip, filter);
+        state.render.textures[state.render.tex_index++] = tex;
+    }
+    LfMat4 transform = mat_mul(
+        scale_mat(mat_identity(), vec3f_create(size.values[0], size.values[1], 0.0f)),
+        translate_mat(mat_identity(), vec3f_create((float)pos.values[0], (float)pos.values[1], 0.0f))
+    );
+    for(uint32_t i = 0; i < 6; i++) {
+        LfVec4f pos_mat = vec4_mul_mat(state.render.vert_pos[i], transform);
+        state.render.verts[state.render.vert_count].pos = vec2f_create(pos_mat.values[0], 
+            pos_mat.values[1]);
+        state.render.verts[state.render.vert_count].color = color;
+        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
+        state.render.verts[state.render.vert_count].tex_index = tex_index;
         state.render.vert_count++;
     } 
 }
@@ -431,8 +555,13 @@ void lf_flush() {
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * state.render.vert_count, 
                     state.render.verts);
 
+    for(uint32_t i = 0; i < MAX_TEX_COUNT_BATCH; i++) {
+        glBindTextureUnit(i, state.render.textures[i].id);
+    }
+
     glBindVertexArray(state.render.vao);
     glDrawArrays(GL_TRIANGLES, 0, state.render.vert_count);
 
     state.render.vert_count = 0;
+    state.render.tex_index = 0;
 }
