@@ -1,47 +1,31 @@
-#pragma once
-#include <X11/X.h>
-#include <X11/Xlib.h>
-#include <stdint.h>
+#pragma once 
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef struct {
-    Window xwin;
-    uint32_t width, height;
-    int32_t x, y;
-    const char* name;
-    bool open;
-} LfWin;
+    float values[2];
+} LfVec2f;
 
 typedef struct {
-    int8_t resizable;
-    int32_t border_width;
-    int32_t border_color;
-    int32_t win_bg_color;
-} LfWinHints;
-
-typedef enum {
-    LF_RESIZABLE = 0,
-    LF_BORDER_WIDTH,
-    LF_BORDER_COLOR
-} LfWinHint;
+    int32_t values[2];
+} LfVec2i;
 
 typedef struct {
-    Display* xdisplay;
-    Window xroot;
-    int32_t xscreen;
-    LfWinHints win_hints;
-} LfState;
+    float values[3];
+}LfVec3f;
 
+typedef struct {
+    float values[4];
+}LfVec4f;
 
-bool lf_init();
+typedef struct {
+    float values[16];
+} LfMat4;
 
-void lf_win_hint(LfWinHint hint, int32_t value);
+void lf_init(uint32_t display_width, uint32_t display_height);
 
-LfWin lf_win(const char* name, uint32_t width, uint32_t heigt, int32_t x, int32_t y,uint32_t color);
+void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
-void lf_win_close(LfWin* win);
+void lf_draw_rect(LfVec2i pos, LfVec2i size, LfVec4f color);
 
-void lf_terminate();
-
-
-LfState lf_get_state();
+void lf_flush();

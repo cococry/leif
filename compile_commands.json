@@ -3,7 +3,10 @@
     "arguments": [
       "/usr/bin/gcc",
       "-c",
-      "-I/usr/include/X11",
+      "-I/usr/include/SDL2",
+      "-D_REENTRANT",
+      "-DLEIF_USE_GLFW",
+      "-Ivendor/glad/include",
       "-o",
       "bin/leif.o",
       "leif.c"
@@ -11,5 +14,18 @@
     "directory": "/home/cococry/dev/leif",
     "file": "/home/cococry/dev/leif/leif.c",
     "output": "/home/cococry/dev/leif/bin/leif.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-Ivendor/glad/include",
+      "-o",
+      "bin/glad.o",
+      "vendor/glad/src/glad.c"
+    ],
+    "directory": "/home/cococry/dev/leif",
+    "file": "/home/cococry/dev/leif/vendor/glad/src/glad.c",
+    "output": "/home/cococry/dev/leif/bin/glad.o"
   }
 ]
