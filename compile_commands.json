@@ -5,6 +5,7 @@
       "-c",
       "-Ivendor/glad/include",
       "-Ivendor/stb_image/",
+      "-Ivendor/stb_truetype",
       "-ffast-math",
       "-O3",
       "-Wextra",

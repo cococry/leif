@@ -1,6 +1,8 @@
 #include "leif.h"
 #include <glad/glad.h>
 #include <stb_image.h>
+#include <stb_truetype.h>
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,11 +38,6 @@
 typedef struct {
     uint32_t id;
 } LfShader;
-
-typedef struct {
-    uint32_t id;
-    const char* filepath;
-} LfTexture;
 
 typedef struct {
     LfVec2f pos;
@@ -226,8 +223,11 @@ void renderer_init() {
 
     glUniform1iv(glGetUniformLocation(state.render.shader.id, "u_textures"), MAX_TEX_COUNT_BATCH, tex_slots);
 }
+void shader_set_mat(LfShader prg, const char* name, LfMat4 mat) {
+    glUniformMatrix4fv(glGetUniformLocation(prg.id, name), 1, GL_FALSE, (float*)&mat.values);
+}
 
-static LfTexture tex_create(const char* filepath, bool flip, LfTextureFiltering filter) {
+LfTexture tex_create(const char* filepath, bool flip, LfTextureFiltering filter) {
     LfTexture tex;
     tex.filepath = filepath;
     int32_t width, height, channels;
@@ -264,8 +264,62 @@ static LfTexture tex_create(const char* filepath, bool flip, LfTextureFiltering 
 
     return tex;
 }
-void shader_set_mat(LfShader prg, const char* name, LfMat4 mat) {
-    glUniformMatrix4fv(glGetUniformLocation(prg.id, name), 1, GL_FALSE, (float*)&mat.values);
+
+LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add) {
+    LfFont font = {0};
+    FILE* file = fopen(filepath, "rb");
+    if (file == NULL) {
+        LF_ERROR("Failed to open font file '%s'\n", filepath);
+    }
+
+    fseek(file, 0, SEEK_END);
+    long fileSize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    uint8_t* buffer = malloc(fileSize);
+    fread(buffer, 1, fileSize, file);
+    fclose(file); 
+    font.font_info = malloc(sizeof(stbtt_fontinfo));
+    stbtt_InitFont((stbtt_fontinfo*)font.font_info, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
+    
+    uint8_t buf[1<<20];
+    uint8_t bitmap[tex_width * tex_height];
+    fread(buf, 1, 1<<20, fopen(filepath, "rb"));
+    font.cdata = malloc(sizeof(stbtt_bakedchar) * 256);
+    font.tex_width = tex_width;
+    font.tex_height = tex_height;
+    font.line_gap_add = line_gap_add;
+    font.font_size = pixelsize;
+    stbtt_BakeFontBitmap(buf, 0, pixelsize, bitmap, tex_width, tex_height, 32, num_glyphs, (stbtt_bakedchar*)font.cdata);
+    uint8_t bitmap_4bpp[tex_width * tex_height * 4];
+
+    uint32_t bitmap_index = 0;
+    for(uint32_t i = 0; i < (uint32_t)(tex_width * tex_height * 4); i++) {
+        bitmap_4bpp[i] = bitmap[bitmap_index];
+        if((i + 1) % 4 == 0) {
+            bitmap_index++;
+    int line_height = 16; // Adjust this value as needed
+        }
+    }
+
+    glGenTextures(1, &font.bitmap.id);
+    glBindTexture(GL_TEXTURE_2D, font.bitmap.id);
+
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tex_width, tex_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bitmap_4bpp);
+    // Generate mipmaps (optional)
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    // Unbind the texture
+    return font;
+}
+
+void lf_free_font(LfFont* font) {
+    free(font->cdata);
+    free(font->font_info);
 }
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
@@ -521,7 +575,8 @@ void lf_draw_image(LfVec2i pos, LfVec2i size, LfVec4f color, const char* filepat
         (LfVec2f){1.0f, 0.0f},
     };
     float tex_index = -1.0f;
-    for(uint32_t i = 0; i < state.render.tex_index; i++) {
+    for(uint32_t i = 0; i < state.render.tex_index + 1; i++) {
+        if(!state.render.textures[i].filepath) continue;
         if(state.render.textures[i].filepath == filepath) {
             tex_index = (float)i;
             break;
@@ -545,6 +600,64 @@ void lf_draw_image(LfVec2i pos, LfVec2i size, LfVec4f color, const char* filepat
         state.render.verts[state.render.vert_count].tex_index = tex_index;
         state.render.vert_count++;
     } 
+}
+void lf_draw_str(LfVec2i pos, LfVec4f color, const char* str, LfFont font) { 
+    float tex_index = -1.0f;
+    for(uint32_t i = 0; i < state.render.tex_index + 1; i++) {
+        if(!state.render.textures[i].filepath) continue;
+        if(state.render.textures[i].filepath == font.bitmap.filepath) {
+            tex_index = (float)i;
+            break;
+        }
+    }
+    if(tex_index == -1.0f) {
+        tex_index = (float)state.render.tex_index;
+        LfTexture tex = font.bitmap;
+        state.render.textures[state.render.tex_index++] = tex;
+    }
+    float x = pos.values[0];
+    float y = pos.values[1];
+    
+    while(*str) { 
+        bool new_line = false;
+        if(*str == '\n') {
+            y += (font.font_size + font.line_gap_add) / 1.5f;
+            x = pos.values[0];
+            new_line = true;
+        }
+        if(!new_line) {
+            stbtt_aligned_quad q;
+            stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
+
+            for(uint32_t j = 0; j < 6; j++) {
+                    LfVec2f verts[6] = {
+                        (LfVec2f){q.x0, q.y0}, 
+                        (LfVec2f){q.x0, q.y1}, 
+                        (LfVec2f){q.x1, q.y1},
+
+                        (LfVec2f){q.x0, q.y0},
+                        (LfVec2f){q.x1, q.y1}, 
+                        (LfVec2f){q.x1, q.y0}
+                    };
+                    LfVec2f texcoords[6] = {
+                        q.s0, q.t0, 
+                        q.s0, q.t1, 
+                        q.s1, q.t1, 
+
+                        q.s0, q.t0, 
+                        q.s1, q.t1, 
+                        q.s1, q.t0
+                    };
+                state.render.verts[state.render.vert_count].pos = verts[j];
+                    state.render.verts[state.render.vert_count].color = color;
+                    state.render.verts[state.render.vert_count].texcoord = texcoords[j];
+                    state.render.verts[state.render.vert_count].tex_index = tex_index;
+                    state.render.vert_count++;
+            }
+        }
+        str++;
+    }
+
 }
 
 void lf_flush() {
