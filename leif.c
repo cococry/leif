@@ -7,6 +7,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef LF_GLFW 
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#endif /* ifdef */
+
 #define LF_TRACE(...) { printf("Leif: [TRACE]: "); printf(__VA_ARGS__); printf("\n"); } 
 #ifdef LF_DEBUG
 #define LF_DEBUG(...) { printf("Leif: [DEBUG]: "); printf(__VA_ARGS__); printf("\n"); } 
@@ -31,8 +36,29 @@
 #define LF_ASSERT(cond, ...)
 #endif // _DEBUG
 
+
+#ifdef LF_GLFW
+#define MAX_KEYS GLFW_KEY_LAST
+#define MAX_MOUSE_BUTTONS GLFW_MOUSE_BUTTON_LAST
+#define KEY_CALLBACK_t GLFWkeyfun
+#define MOUSE_BUTTON_CALLBACK_t GLFWmousebuttonfun
+#define SCROLL_CALLBACK_t GLFWscrollfun
+#define CURSOR_CALLBACK_t GLFWcursorposfun
+#else 
+
+#define MAX_KEYS 0
+#define MAX_MOUSE_BUTTONS 0
+#define KEY_CALLBACK_t void*
+#define MOUSE_BUTTON_CALLBACK_t void*
+#define SCROLL_CALLBACK_t void*
+#define CURSOR_CALLBACK_t void*
+#endif
 #define MAX_VERT_COUNT_BATCH 10000
 #define MAX_TEX_COUNT_BATCH 32
+#define MAX_KEY_CALLBACKS 4
+#define MAX_MOUSE_BTTUON_CALLBACKS 4
+#define MAX_SCROLL_CALLBACKS 4
+#define MAX_CURSOR_POS_CALLBACKS 4
 
 // -- Struct Defines ---
 typedef struct {
@@ -47,20 +73,49 @@ typedef struct {
 } Vertex;
 
 typedef struct {
+    bool keys[MAX_KEYS];
+    bool keys_changed[MAX_KEYS];
+} LfKeyboard;
+
+typedef struct {
+    bool buttons[MAX_MOUSE_BUTTONS];
+    bool buttons_changed[MAX_MOUSE_BUTTONS];
+    double xpos, ypos, xpos_last, ypos_last, xpos_delta, ypos_delta;
+    bool first_mouse_press; 
+    double xscroll_delta, yscroll_delta;
+} LfMouse;
+typedef struct {
+    LfKeyboard keyboard;
+    LfMouse mouse;
+    KEY_CALLBACK_t key_cbs[MAX_KEY_CALLBACKS];
+    MOUSE_BUTTON_CALLBACK_t mouse_button_cbs[MAX_MOUSE_BTTUON_CALLBACKS];
+    SCROLL_CALLBACK_t scroll_cbs[MAX_SCROLL_CALLBACKS];
+    CURSOR_CALLBACK_t cursor_pos_cbs[MAX_CURSOR_POS_CALLBACKS];
+
+    uint32_t key_cb_count, mouse_button_cb_count, scroll_cb_count, cursor_pos_cb_count;
+} InputState;
+
+typedef struct {
     LfShader shader;
     uint32_t vao, vbo;
     uint32_t vert_count;
     Vertex verts[MAX_VERT_COUNT_BATCH];
     LfVec4f vert_pos[6];
     LfTexture textures[MAX_TEX_COUNT_BATCH];
-    uint32_t tex_index;
+    uint32_t tex_index, tex_count;
 } RenderState;
 
 typedef struct {
     bool init;
     uint32_t dsp_w, dsp_h;
+
     RenderState render;
+    InputState input;
+    void* window_handle;
 } LfState;
+
+static LfState state;
+
 
 // --- Renderer ---
 static uint32_t                 shader_create(GLenum type, const char* src);
@@ -93,6 +148,13 @@ static LfVec4f                  vec4f_add(LfVec4f a, LfVec4f b);
 static LfVec4f                  vec4f_mul_scaler(LfVec4f v, float k);
 static LfVec4f                  vec4f_mul(LfVec4f v1, LfVec4f v2);
 
+// --- Input ---
+#ifdef LF_GLFW
+static void                     glfw_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
+static void                     glfw_mouse_button_callback(GLFWwindow* window, int button, int action, int mods); 
+static void                     glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+static void                     glfw_cursor_callback(GLFWwindow* window, double xpos, double ypos);
+#endif
 
 // --- Static Functions --- 
 uint32_t shader_create(GLenum type, const char* src) {
@@ -227,7 +289,7 @@ void shader_set_mat(LfShader prg, const char* name, LfMat4 mat) {
     glUniformMatrix4fv(glGetUniformLocation(prg.id, name), 1, GL_FALSE, (float*)&mat.values);
 }
 
-LfTexture tex_create(const char* filepath, bool flip, LfTextureFiltering filter) {
+LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filter) {
     LfTexture tex;
     tex.filepath = filepath;
     int32_t width, height, channels;
@@ -247,13 +309,13 @@ LfTexture tex_create(const char* filepath, bool flip, LfTextureFiltering filter)
     glTextureStorage2D(tex.id, 1, internal_format, width, height);
     
     switch(filter) {
-        case TEX_FILTER_LINEAR:
-            glTexParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        case LF_TEX_FILTER_LINEAR:
+            glTextureParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTextureParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             break;
-        case TEX_FILTER_NEAREST:
-            glTexParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        case LF_TEX_FILTER_NEAREST:
+            glTextureParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTextureParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             break;
     }
     glTextureParameteri(tex.id, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -279,6 +341,7 @@ LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width
     fread(buffer, 1, fileSize, file);
     fclose(file); 
     font.font_info = malloc(sizeof(stbtt_fontinfo));
+    font.bitmap.filepath = filepath;
     stbtt_InitFont((stbtt_fontinfo*)font.font_info, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
     
     uint8_t buf[1<<20];
@@ -520,9 +583,93 @@ LfVec4f vec4f_mul(LfVec4f v1, LfVec4f v2) {
                         v1.values[2] * v2.values[2], 
                         v1.values[3] * v2.values[3]);
 }
- 
+
+#ifdef LF_GLFW
+void glfw_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    (void)window;
+    (void)mods;
+    (void)scancode;
+    if(action != GLFW_RELEASE) {
+        if(!state.input.keyboard.keys[key]) 
+            state.input.keyboard.keys[key] = true;
+    }  else {
+        state.input.keyboard.keys[key] = false;
+    }
+    state.input.keyboard.keys_changed[key] = (action != GLFW_REPEAT);
+    for(uint32_t i = 0; i < state.input.key_cb_count; i++) {
+        state.input.key_cbs[i](window, key, scancode, action, mods);
+    } 
+}
+void glfw_mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    (void)window;
+    (void)mods;
+    if(action != GLFW_RELEASE)  {
+        if(!state.input.mouse.buttons[button])
+            state.input.mouse.buttons[button] = true;
+    } else {
+        state.input.mouse.buttons[button] = false;
+    }
+    state.input.mouse.buttons_changed[button] = (action != GLFW_REPEAT);
+    for(uint32_t i = 0; i < state.input.mouse_button_cb_count; i++) {
+        state.input.mouse_button_cbs[i](window, button, action, mods);
+    }
+}
+void glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    (void)window;
+    state.input.mouse.xscroll_delta = xoffset;
+    state.input.mouse.yscroll_delta = yoffset;
+    for(uint32_t i = 0; i< state.input.scroll_cb_count; i++) {
+        state.input.scroll_cbs[i](window, xoffset, yoffset);
+    }
+}
+void glfw_cursor_callback(GLFWwindow* window, double xpos, double ypos) {
+    (void)window;
+    state.input.mouse.xpos = xpos;
+    state.input.mouse.ypos = ypos;
+
+    if(state.input.mouse.first_mouse_press) {
+        state.input.mouse.xpos_last = xpos;
+        state.input.mouse.ypos_last = ypos;
+        state.input.mouse.first_mouse_press = false;
+    }
+    state.input.mouse.xpos_delta = state.input.mouse.xpos - state.input.mouse.xpos_last;
+    state.input.mouse.ypos_delta = state.input.mouse.ypos - state.input.mouse.ypos_last;
+    state.input.mouse.xpos_last = xpos;
+    state.input.mouse.ypos_last = ypos;
+    for(uint32_t i = 0; i< state.input.cursor_pos_cb_count; i++) {
+        state.input.cursor_pos_cbs[i](window, xpos, ypos);
+    }
+}
+#endif
+
 // --- Public API Functions ---
 //
+void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_window) {
+#ifndef LF_GLFW
+    LF_ERROR("Trying to initialize Leif with GLFW without defining 'LF_GLFW'");
+    return;
+#else 
+    if(!glfwInit()) {
+        LF_ERROR("Trying to initialize Leif with GLFW without initializing GLFW first.");
+        return;
+    }
+    memset(&state, 0, sizeof(state));
+    state.init = true;
+    state.dsp_w = display_width;
+    state.dsp_h = display_height;
+    state.window_handle = glfw_window;
+    state.input.mouse.first_mouse_press = true;
+    state.render.tex_count = 0;
+
+    glfwSetKeyCallback(state.window_handle, glfw_key_callback);
+    glfwSetMouseButtonCallback(state.window_handle, glfw_mouse_button_callback);
+    glfwSetScrollCallback(state.window_handle, glfw_scroll_callback);
+    glfwSetCursorPosCallback(state.window_handle, glfw_cursor_callback);
+
+    renderer_init();
+#endif
+}
+// --- Public API Functions ---
 void lf_init(uint32_t display_width, uint32_t display_height) {
     state.init = true;
     state.dsp_w = display_width;
@@ -539,7 +686,7 @@ void lf_resize_display(uint32_t display_width, uint32_t display_height) {
 }
 
 
-void lf_draw_rect(LfVec2i pos, LfVec2i size, LfVec4f color) {
+void lf_rect(LfVec2i pos, LfVec2i size, LfVec4f color) {
     LfVec2f texcoords[6] = {
         (LfVec2f){0.0f, 0.0f},
         (LfVec2f){0.0f, 1.0f},
@@ -564,7 +711,7 @@ void lf_draw_rect(LfVec2i pos, LfVec2i size, LfVec4f color) {
     } 
 }
 
-void lf_draw_image(LfVec2i pos, LfVec2i size, LfVec4f color, const char* filepath, bool flip, LfTextureFiltering filter) {
+void lf_image(LfVec2i pos, LfVec2i size, LfVec4f color, LfTexture tex) {
     LfVec2f texcoords[6] = {
         (LfVec2f){0.0f, 0.0f},
         (LfVec2f){0.0f, 1.0f},
@@ -575,17 +722,16 @@ void lf_draw_image(LfVec2i pos, LfVec2i size, LfVec4f color, const char* filepat
         (LfVec2f){1.0f, 0.0f},
     };
     float tex_index = -1.0f;
-    for(uint32_t i = 0; i < state.render.tex_index + 1; i++) {
-        if(!state.render.textures[i].filepath) continue;
-        if(state.render.textures[i].filepath == filepath) {
-            tex_index = (float)i;
+    for(uint32_t i = 0; i < state.render.tex_count; i++) {
+        if(strcmp(tex.filepath, state.render.textures[i].filepath) == 0)  {
+            tex_index = i;
             break;
         }
     }
     if(tex_index == -1.0f) {
         tex_index = (float)state.render.tex_index;
-        LfTexture tex = tex_create(filepath, flip, filter);
-        state.render.textures[state.render.tex_index++] = tex;
+        state.render.textures[state.render.tex_count++] = tex;
+        state.render.tex_index++;
     }
     LfMat4 transform = mat_mul(
         scale_mat(mat_identity(), vec3f_create(size.values[0], size.values[1], 0.0f)),
@@ -601,19 +747,20 @@ void lf_draw_image(LfVec2i pos, LfVec2i size, LfVec4f color, const char* filepat
         state.render.vert_count++;
     } 
 }
-void lf_draw_str(LfVec2i pos, LfVec4f color, const char* str, LfFont font) { 
+void lf_text(LfVec2i pos, const char* str, LfFont font, LfVec4f color) { 
     float tex_index = -1.0f;
-    for(uint32_t i = 0; i < state.render.tex_index + 1; i++) {
-        if(!state.render.textures[i].filepath) continue;
-        if(state.render.textures[i].filepath == font.bitmap.filepath) {
+    for(uint32_t i = 0; i < state.render.tex_count; i++) {
+        if(strcmp(state.render.textures[i].filepath, font.bitmap.filepath) == 0) {
             tex_index = (float)i;
             break;
         }
     }
+        lf_text((LfVec2i){100.f, 100.0f}, "Hallo papa was geht", font, (LfVec4f){1.0f, 0.0f, 0.0f, 1.0f});
     if(tex_index == -1.0f) {
         tex_index = (float)state.render.tex_index;
         LfTexture tex = font.bitmap;
-        state.render.textures[state.render.tex_index++] = tex;
+        state.render.textures[state.render.tex_count++] = tex;
+        state.render.tex_index++;
     }
     float x = pos.values[0];
     float y = pos.values[1];
@@ -677,4 +824,99 @@ void lf_flush() {
 
     state.render.vert_count = 0;
     state.render.tex_index = 0;
+}
+
+void lf_add_key_callback(void* cb) {
+    state.input.key_cbs[state.input.key_cb_count++] = cb;
+}
+void lf_add_mouse_button_callback(void* cb) {
+    state.input.mouse_button_cbs[state.input.mouse_button_cb_count++] = cb;
+}
+
+void lf_add_scroll_button_callback(void* cb) {
+    state.input.scroll_cbs[state.input.scroll_cb_count++] = cb;
+}
+
+void lf_add_cursor_pos_button_callback(void* cb) {
+    state.input.cursor_pos_cbs[state.input.cursor_pos_cb_count++] = cb;
+}
+
+bool lf_key_went_down(uint32_t key) {
+    return lf_key_changed(key) && state.input.keyboard.keys[key];
+}
+
+bool lf_key_is_down(uint32_t key) {
+    return state.input.keyboard.keys[key];
+}
+
+bool lf_key_is_released(uint32_t key) {
+    return lf_key_changed(key) && !state.input.keyboard.keys[key];
+}
+
+bool lf_key_changed(uint32_t key) {
+    bool ret = state.input.keyboard.keys_changed[key];
+    state.input.keyboard.keys_changed[key] = false;
+    return ret;
+}
+
+bool lf_mouse_button_went_down(uint32_t button) {
+    return lf_mouse_button_changed(button) && state.input.mouse.buttons[button];
+}
+
+bool lf_mouse_button_is_down(uint32_t button) {
+    return state.input.mouse.buttons[button];
+}
+
+bool lf_mouse_button_is_released(uint32_t button) {
+    return lf_mouse_button_changed(button) && !state.input.mouse.buttons[button];
+}
+
+bool lf_mouse_button_changed(uint32_t button) {
+    bool ret = state.input.mouse.buttons_changed[button];
+    state.input.mouse.buttons_changed[button] = false;
+    return ret;
+}
+
+double lf_get_mouse_x() {
+    return state.input.mouse.xpos;
+}
+
+double lf_get_mouse_y() {
+    return state.input.mouse.ypos;
+}
+
+double lf_get_mouse_x_delta() {
+    return state.input.mouse.xpos_delta;
+}
+
+double lf_get_mouse_y_delta() {
+    return state.input.mouse.ypos_delta;
+}
+
+double lf_get_mouse_scroll_x() {
+    return state.input.mouse.xscroll_delta;
+}
+
+double lf_get_mouse_scroll_y() {
+    return state.input.mouse.yscroll_delta;
+}
+
+
+LfButtonState lf_button(LfVec2i pos, LfVec2i size, LfButtonProps props){
+    bool hovered = lf_get_mouse_x() <= (pos.values[0] + (size.values[0] / 2.0f)) && lf_get_mouse_x() >= (pos.values[0] - (size.values[0] / 2.0f)) && 
+        lf_get_mouse_y() <= (pos.values[1] + (size.values[1] / 2.0f)) && lf_get_mouse_y() >= (pos.values[1] - (size.values[1] / 2.0f));
+    if(hovered && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT)) {
+        lf_rect(pos, size, props.clicked_color);
+        return LF_BUTTON_STATE_CLICKED;
+    }
+    if(hovered && lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT)) {
+        lf_rect(pos, size, props.held_color);
+        return LF_BUTTON_STATE_HELD;
+    }
+    if(hovered && (!lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && !lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT))) {
+        lf_rect(pos, size, props.hover_color);
+        return LF_BUTTON_STATE_HOVERED;
+    }
+    lf_rect(pos, size, props.idle_color);
+    return LF_BUTTON_STATE_IDLE;
 }

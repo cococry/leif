@@ -3,6 +3,7 @@
     "arguments": [
       "/usr/bin/gcc",
       "-c",
+      "-DLF_GLFW",
       "-Ivendor/glad/include",
       "-Ivendor/stb_image/",
       "-Ivendor/stb_truetype",
