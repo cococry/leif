@@ -29,79 +29,48 @@ int main() {
         printf("Failed to initialize Glad.\n");
     }
 
-
-    lf_init_glfw(1000, 1080, window);
-    
+    lf_init_glfw(1000, 1080, NULL, window);    
     glfwSetFramebufferSizeCallback(window, resize_callback);
-
-    LfFont font_arial = lf_load_font("../test/fonts/impact.ttf", 36.0f, 1024, 1024, 256, 10);
-    LfFont font = lf_load_font("../test/fonts/arial.ttf", 36.0f, 1024, 1024, 256, 10);
 
     float lastTime = 0.0f;
     float deltaTime = 0.0f;
-    float scale = 15;
-    float offset = 25;
-    char filepath[64];
-    LfTexture tex;
-    LfTexture leif = lf_tex_create("../test/textures/leif.png", false, LF_TEX_FILTER_NEAREST); 
-    LfTexture ragnar = lf_tex_create("../test/textures/ragnar.png", false, LF_TEX_FILTER_LINEAR);
-    LfTexture tiger = lf_tex_create("../test/textures/tiger.jpg", false, LF_TEX_FILTER_LINEAR);
-    LfVec4f bg_color = (LfVec4f){0.3f, 0.3f, 0.3f, 1.0f};
-    tex = leif;
-    strcpy(filepath, "../test/textures/logo.png");
+    float div_size = 600;
+
+    bool next = false;
     while(!glfwWindowShouldClose(window)) {
         float currentTime = glfwGetTime();
         deltaTime = currentTime - lastTime;
         lastTime = currentTime;
         glClear(GL_COLOR_BUFFER_BIT);
-        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
-        lf_image((LfVec2i){600.0f, 250.0f}, (LfVec2i){strcmp(tex.filepath, ragnar.filepath) == 0 ? 450 : 300, 300}, (LfVec4f){1.0f, 1.0f, 1.0f, 1.0f}, tex);
-        lf_image((LfVec2i){1200.0f, 250.0f}, (LfVec2i){600, 300}, (LfVec4f){1.0f, 1.0f, 1.0f, 1.0f}, tiger);
-        if(lf_button((LfVec2i){605, 630}, (LfVec2i){1050, 300}, (LfButtonProps){
-                                        .idle_color = (LfVec4f){0.3f, 0.3f, 0.3f, 1.0f}, 
-                                      .hover_color = (LfVec4f){0.6f, 0.6f, 0.6f, 1.0f},
-                                       .clicked_color = (LfVec4f){0.3f, 0.3f, 0.3f, 1.0f}, 
-                                        .held_color = (LfVec4f){0.3f, 0.3f, 0.3f, 1.0f}}) == LF_BUTTON_STATE_HOVERED) {
-            bg_color = (LfVec4f){0.6f, 0.6f, 0.6f, 1.0f};
-        } else {
-            bg_color = (LfVec4f){0.3f, 0.3f, 0.3f, 1.0f};
-        }
-        lf_text((LfVec2i){130, 570},  "Welcome to the leif library. Leif is a minimalistic GUI library\nwritten in C & OpenGL.\nLeif's focus is on minimalism, usability"
-                ",features & modernism.\nLeif currently supports rendering text, textures &\nrectengular geometry with a inhouse batch renderer.\n", font_arial, 
-                    (LfVec4f){1.0f, 1.0f, 1.0f, 1.0f});
-        for(uint32_t y = 0; y < 16; y++) {
-            for(uint32_t x = 0; x < 16; x++) {
-                lf_rect((LfVec2i){x * offset + 450, y * offset + 900}, (LfVec2i){scale, scale}, (LfVec4f){(double)rand() / RAND_MAX, (double)rand() / RAND_MAX, (double)rand() / RAND_MAX, 1.0f});
+        glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+        if(!next) {
+            lf_div_begin((LfVec2i){100, 100}, (LfVec2i){div_size, div_size});
+            if(lf_button("add size") == LF_CLICKABLE_ITEM_STATE_CLICKED) {
+                if(div_size + 100 < 1000)
+                    div_size += 100; 
             }
-        }
-        if(lf_button((LfVec2i){100, 100}, (LfVec2i){50, 50}, 
-                     (LfButtonProps){.idle_color = (LfVec4f){0.0f, 1.0f, 0.0f, 1.0f}, 
-                                      .hover_color = (LfVec4f){0.0f, 0.8f, 0.0f, 1.0f},
-                                       .clicked_color = (LfVec4f){1.0f, 0.0f, 0.0f, 1.0f}, 
-                                        .held_color = (LfVec4f){0.0f, 1.0f, 0.0f, 1.0f}}) == LF_BUTTON_STATE_HELD) {
-            scale += deltaTime * 8;
-            offset += deltaTime * 8;
-        }
-        if(lf_button((LfVec2i){200, 100}, (LfVec2i){50, 50}, 
-                     (LfButtonProps){.idle_color = (LfVec4f){1.0f, 0.0f, 0.0f, 1.0f}, 
-                                      .hover_color = (LfVec4f){0.0f, 0.8f, 0.0f, 1.0f},
-                                       .clicked_color = (LfVec4f){1.0f, 0.0f, 0.0f, 1.0f}, 
-                                        .held_color = (LfVec4f){0.0f, 1.0f, 0.0f, 1.0f}}) == LF_BUTTON_STATE_HELD) {
-            scale -= deltaTime * 8;
-            offset -= deltaTime * 8;
-        }
-        if(lf_button((LfVec2i){300, 100}, (LfVec2i){50, 50}, 
-                     (LfButtonProps){.idle_color = (LfVec4f){0.0f, 0.0f, 1.0f, 1.0f}, 
-                                      .hover_color = (LfVec4f){0.0f, 0.8f, 0.0f, 1.0f},
-                                       .clicked_color = (LfVec4f){1.0f, 0.0f, 0.0f, 1.0f}, 
-                                        .held_color = (LfVec4f){0.0f, 1.0f, 0.0f, 1.0f}}) == LF_BUTTON_STATE_CLICKED) {
-            if(strcmp(tex.filepath, leif.filepath) == 0) {
-                tex = ragnar;
-            } else {
-                tex = leif;
+            if(lf_button("decrease size") == LF_CLICKABLE_ITEM_STATE_CLICKED) {
+                if(div_size - 100 > 100)
+                    div_size -= 100; 
             }
+            if(lf_button("next") == LF_CLICKABLE_ITEM_STATE_CLICKED) {
+                next = !next;
+            }
+            lf_new_line();
+            lf_text("This is a demonstration of the current state of the leif library.\n");
+        } else {  
+            LfTextProps text_props = lf_get_text_props("Hello World");
+            lf_div_begin((LfVec2i){100, 100}, (LfVec2i){600, 600});
+            if(lf_button("previous") == LF_CLICKABLE_ITEM_STATE_CLICKED) {
+                next = !next;
+            }
+            lf_set_ptr_x(lf_get_div_size().values[0] / 2.0f - text_props.width / 2.0f);
+            lf_set_ptr_y(lf_get_div_size().values[1] / 2.0f - text_props.height);
+            lf_text("Hello World");
+            lf_div_end();
         }
         lf_flush();
+        lf_update_input();
         glfwPollEvents();
         glfwSwapBuffers(window);
     }

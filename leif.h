@@ -2,6 +2,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define LF_RGBA(r, g, b, a) r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f
+#define LF_RED LF_RGBA(255.0f, 0.0f, 0.0f, 255.0f)
+#define LF_GREEN LF_RGBA(0.0f, 255.0f, 0.0f, 255.0f)
+#define LF_BLUE LF_RGBA(0.0f, 0.0f, 255.0f, 255.0f)
+#define LF_WHITE LF_RGBA(255.0f, 255.0f, 255.0f, 255.0f)
+#define LF_BLACK LF_RGBA(0.0f, 0.0f, 0.0f, 255.0f)
+
 typedef struct {
     float values[2];
 } LfVec2f;
@@ -30,32 +37,43 @@ typedef struct {
     void* cdata;
     void* font_info;
     uint32_t tex_width, tex_height;
-    uint32_t line_gap_add, font_size;
+    uint32_t line_gap_add, font_size; 
     LfTexture bitmap;
 } LfFont;
-
 
 typedef enum {
     LF_TEX_FILTER_LINEAR = 0,
     LF_TEX_FILTER_NEAREST
 } LfTextureFiltering;
 
-typedef enum {
-    LF_BUTTON_STATE_IDLE = 0,
-    LF_BUTTON_STATE_HOVERED,
-    LF_BUTTON_STATE_CLICKED,
-    LF_BUTTON_STATE_HELD
-} LfButtonState;
+typedef struct {
+    float width, height;
+} LfTextProps;
 
-void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_window);
+typedef enum {
+    LF_CLICKABLE_ITEM_STATE_IDLE = 0,
+    LF_CLICKABLE_ITEM_STATE_HOVERED = 1,
+    LF_CLICKABLE_ITEM_STATE_CLICKED = 2
+} LfClickableItemState;
+
+typedef struct {
+    LfVec4f color, hover_color, clicked_color, text_color;
+    float padding, margin_left, margin_right, margin_top, margin_bottom;
+} LfUIElementProps;
+
+typedef struct {
+    LfUIElementProps button_props, div_props, text_props;
+    LfFont font;
+} LfTheme;
+
+
+void lf_init_glfw(uint32_t display_width, uint32_t display_height, LfTheme* theme, void* glfw_window);
 
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
 void lf_rect(LfVec2i pos, LfVec2i size, LfVec4f color);
 
 void lf_image(LfVec2i pos, LfVec2i size, LfVec4f color, LfTexture tex);
-
-void lf_text(LfVec2i pos, const char* str, LfFont font, LfVec4f color);
 
 LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
 
@@ -65,14 +83,13 @@ void lf_free_font(LfFont* font);
 
 void lf_flush();
 
-
 void lf_add_key_callback(void* cb);
 
 void lf_add_mouse_button_callback(void* cb);
 
-void lf_add_scroll_button_callback(void* cb);
+void lf_add_scroll_callback(void* cb);
 
-void lf_add_cursor_pos_button_callback(void* cb);
+void lf_add_cursor_pos_callback(void* cb);
 
 bool lf_key_went_down(uint32_t key);
 
@@ -102,8 +119,24 @@ double lf_get_mouse_scroll_x();
 
 double lf_get_mouse_scroll_y();
 
+LfClickableItemState lf_div_begin(LfVec2i pos, LfVec2i size);
 
-typedef struct {
-    LfVec4f idle_color, hover_color, clicked_color, held_color;
-} LfButtonProps;
-LfButtonState lf_button(LfVec2i pos, LfVec2i size, LfButtonProps props);
+void lf_div_end();
+
+LfClickableItemState lf_button(const char* text);
+ 
+LfUIElementProps lf_style_color(LfVec4f color);
+
+void lf_new_line();
+
+void lf_update_input();
+
+LfTextProps lf_get_text_props(const char* str);
+
+void lf_text(const char* str);
+
+LfVec2i lf_get_div_size();
+
+void lf_set_ptr_x(float x);
+
+void lf_set_ptr_y(float y);
