@@ -62,7 +62,7 @@ typedef struct {
 } LfUIElementProps;
 
 typedef struct {
-    LfUIElementProps button_props, div_props, text_props;
+    LfUIElementProps button_props, div_props, text_props, image_props;
     LfFont font;
 } LfTheme;
 
@@ -125,13 +125,13 @@ LfClickableItemState lf_button(const char* text);
  
 LfUIElementProps lf_style_color(LfVec4f color);
 
-void lf_new_line();
+void lf_next_line();
 
 void lf_update_input();
 
 LfTextProps lf_get_text_props(const char* str);
 
-void lf_text(const char* str);
+void lf_text(const char* fmt, ...);
 
 LfVec2i lf_get_div_size();
 
@@ -140,3 +140,5 @@ void lf_set_ptr_x(float x);
 void lf_set_ptr_y(float y);
 
 void lf_image(uint32_t tex_id, uint32_t width, uint32_t height);
+
+LfTheme* lf_theme();
