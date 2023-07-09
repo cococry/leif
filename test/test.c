@@ -35,8 +35,9 @@ int main() {
     float lastTime = 0.0f;
     float deltaTime = 0.0f;
     float div_size = 600;
-
     bool next = false;
+
+    LfTexture tex = lf_tex_create("../test/textures/leif.png", false, LF_TEX_FILTER_NEAREST);
     while(!glfwWindowShouldClose(window)) {
         float currentTime = glfwGetTime();
         deltaTime = currentTime - lastTime;
@@ -57,7 +58,7 @@ int main() {
                 next = !next;
             }
             lf_new_line();
-            lf_text("This is a demonstration of the current state of the leif library.\n");
+            lf_image(tex.id, tex.width * 2, tex.height * 2);
         } else {  
             LfTextProps text_props = lf_get_text_props("Hello World");
             lf_div_begin((LfVec2i){100, 100}, (LfVec2i){600, 600});

@@ -31,7 +31,7 @@ typedef struct {
 
 typedef struct {
     uint32_t id;
-    const char* filepath;
+    uint32_t width, height;
 } LfTexture;
 typedef struct {
     void* cdata;
@@ -72,8 +72,6 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, LfTheme* them
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
 void lf_rect(LfVec2i pos, LfVec2i size, LfVec4f color);
-
-void lf_image(LfVec2i pos, LfVec2i size, LfVec4f color, LfTexture tex);
 
 LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
 
@@ -140,3 +138,5 @@ LfVec2i lf_get_div_size();
 void lf_set_ptr_x(float x);
 
 void lf_set_ptr_y(float y);
+
+void lf_image(uint32_t tex_id, uint32_t width, uint32_t height);

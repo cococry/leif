@@ -171,6 +171,8 @@ static bool                     aabb_intersects_aabb(LfAABB a, LfAABB b);
 // --- UI ---
 static LfClickableItemState     clickable_item(LfVec2i pos, LfVec2i size, LfUIElementProps props);
 static LfTextProps              lf_text_render(LfVec2i pos, const char* str, LfFont font, LfUIElementProps props, float wrap_point, bool no_render);
+static void                     lf_image_render(LfVec2i pos, LfVec4f color, LfTexture tex);
+
 // --- Input ---
 #ifdef LF_GLFW
 static void                     glfw_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -314,7 +316,6 @@ void shader_set_mat(LfShader prg, const char* name, LfMat4 mat) {
 
 LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filter) {
     LfTexture tex;
-    tex.filepath = filepath;
     int32_t width, height, channels;
     stbi_set_flip_vertically_on_load(flip);
     stbi_uc* data = stbi_load(filepath, &width, &height, &channels, 0);
@@ -347,6 +348,9 @@ LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filt
     
     stbi_image_free(data);
 
+    tex.width = width;
+    tex.height = height;
+
     return tex;
 }
 
@@ -364,7 +368,6 @@ LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width
     fread(buffer, 1, fileSize, file);
     fclose(file); 
     font.font_info = malloc(sizeof(stbtt_fontinfo));
-    font.bitmap.filepath = filepath;
     stbtt_InitFont((stbtt_fontinfo*)font.font_info, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
     
     uint8_t buf[1<<20];
@@ -729,7 +732,10 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, LfTheme* them
         };
         state.theme.text_props = (LfUIElementProps){
             .text_color = (LfVec4f){LF_RGBA(255, 255, 255, 255)}, 
-            .margin_top = 10
+            .margin_left = 10, 
+            .margin_right = 10, 
+            .margin_top = 10, 
+            .margin_bottom = 10
         };
         state.theme.button_props = (LfUIElementProps){ 
             .color = (LfVec4f){LF_RGBA(23, 194, 86, 255)}, 
@@ -796,8 +802,8 @@ void lf_rect(LfVec2i pos, LfVec2i size, LfVec4f color) {
     } 
 }
 
-void lf_image(LfVec2i pos, LfVec2i size, LfVec4f color, LfTexture tex) {
-    pos = (LfVec2i){pos.values[0] + size.values[0] / 2.0f, pos.values[1] + size.values[1] / 2.0f};
+void lf_image_render(LfVec2i pos, LfVec4f color, LfTexture tex) {
+    pos = (LfVec2i){pos.values[0] + tex.width / 2.0f, pos.values[1] + tex.height / 2.0f};
     LfVec2f texcoords[6] = {
         (LfVec2f){0.0f, 0.0f},
         (LfVec2f){0.0f, 1.0f},
@@ -809,7 +815,7 @@ void lf_image(LfVec2i pos, LfVec2i size, LfVec4f color, LfTexture tex) {
     };
     float tex_index = -1.0f;
     for(uint32_t i = 0; i < state.render.tex_count; i++) {
-        if(strcmp(tex.filepath, state.render.textures[i].filepath) == 0)  {
+        if(tex.id == state.render.textures[i].id)  {
             tex_index = i;
             break;
         }
@@ -820,7 +826,7 @@ void lf_image(LfVec2i pos, LfVec2i size, LfVec4f color, LfTexture tex) {
         state.render.tex_index++;
     }
     LfMat4 transform = mat_mul(
-        scale_mat(mat_identity(), vec3f_create(size.values[0], size.values[1], 0.0f)),
+        scale_mat(mat_identity(), vec3f_create(tex.width, tex.height, 0.0f)),
         translate_mat(mat_identity(), vec3f_create((float)pos.values[0], (float)pos.values[1], 0.0f))
     );
     for(uint32_t i = 0; i < 6; i++) {
@@ -837,7 +843,7 @@ LfTextProps lf_text_render(LfVec2i pos, const char* str, LfFont font, LfUIElemen
     float tex_index = -1.0f;
     if(!no_render) {
         for(uint32_t i = 0; i < state.render.tex_count; i++) {
-            if(strcmp(state.render.textures[i].filepath, font.bitmap.filepath) == 0) {
+            if(state.render.textures[i].id == font.bitmap.id) {
                 tex_index = (float)i;
                 break;
             }
@@ -871,7 +877,7 @@ LfTextProps lf_text_render(LfVec2i pos, const char* str, LfFont font, LfUIElemen
     }
     while(*str) { 
         bool skip = false;
-        if(*str == '\n' || (x - pos.values[0] >= wrap_point)) {
+        if(*str == '\n' || (x >= wrap_point)) {
             if(x > width)
                 x = width;
             y += (font.font_size + font.line_gap_add) / 1.5f;
@@ -1063,6 +1069,7 @@ LfUIElementProps lf_syle_color(LfVec4f color) {
 void lf_new_line() {
     state.pos_ptr.values[0] = state.current_div.aabb.pos.values[0];
     state.pos_ptr.values[1] += state.current_line_height;
+    state.current_line_height = 0;
 }
 
 void lf_update_input() {
@@ -1090,7 +1097,7 @@ void lf_text(const char* text) {
     if(state.pos_ptr.values[1] + text_props.height + margin_bottom + padding * 2.0f >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return;
 
     lf_rect(state.pos_ptr, (LfVec2i){text_props.width + padding * 2.0f, text_props.height + padding * 2.0f}, state.theme.text_props.color);
-    lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, text, state.theme.font, state.theme.text_props, state.current_div.aabb.size.values[0] - margin_right * 2.0f - padding * 2.0f, false);
+    lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, text, state.theme.font, state.theme.text_props, state.current_div.aabb.pos.values[0] + state.current_div.aabb.size.values[0] - margin_left - margin_right - padding * 2.0f, false);
     state.pos_ptr.values[0] += text_props.width + margin_right+ padding;
     state.pos_ptr.values[1] -= margin_top;
 }
@@ -1106,4 +1113,15 @@ void lf_set_ptr_x(float x) {
 
 void lf_set_ptr_y(float y) {
     state.pos_ptr.values[1] = y + state.current_div.aabb.pos.values[1];
+}
+
+
+void lf_image(uint32_t tex_id, uint32_t width, uint32_t height) {
+    float margin_left = 0, margin_right = 0, 
+        margin_top = 0, margin_bottom = 0;
+   
+    if(state.pos_ptr.values[1] + height + margin_bottom >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return;      
+    lf_image_render(state.pos_ptr, (LfVec4f){1.0f, 1.0f, 1.0f, 1.0f}, (LfTexture){.id = tex_id, .width = width, .height = height});
+    state.pos_ptr.values[0] += width + margin_right;
+    state.pos_ptr.values[1] -= margin_top;
 }
