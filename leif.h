@@ -122,6 +122,8 @@ LfClickableItemState lf_div_begin(LfVec2i pos, LfVec2i size);
 void lf_div_end();
 
 LfClickableItemState lf_button(const char* text);
+
+LfClickableItemState lf_button_fixed(const char* text, int32_t width, int32_t height);
  
 LfUIElementProps lf_style_color(LfVec4f color);
 

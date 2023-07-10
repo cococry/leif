@@ -756,7 +756,7 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, LfTheme* them
             .margin_bottom = 10
         };
 
-        state.theme.font = lf_load_font("../test/fonts/product_sans_regular.ttf", 24.0f, 1024, 1024, 256, 5); 
+        state.theme.font = lf_load_font("/home/cococry/dev/leif/test/fonts/product_sans_regular.ttf", 24.0f, 1024, 1024, 256, 5); 
     }
     glfwSetKeyCallback(state.window_handle, glfw_key_callback);
     glfwSetMouseButtonCallback(state.window_handle, glfw_mouse_button_callback);
@@ -1050,6 +1050,28 @@ LfClickableItemState lf_button(const char* text) {
                    true, false);
 
     state.pos_ptr.values[0] += text_props.width + margin_right+ padding;
+    state.pos_ptr.values[1] -= margin_top;
+    return ret;
+}
+LfClickableItemState lf_button_fixed(const char* text, int32_t width, int32_t height) {
+    float padding = state.theme.button_props.padding;
+    float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right, 
+        margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom;
+    LfTextProps text_props = lf_text_render(state.pos_ptr, text, state.theme.font, state.theme.button_props, state.current_div.aabb.size.values[0] - margin_right * 2.0f - padding * 2.0f, true, true);
+    if(text_props.height + padding * 2 + margin_bottom  > state.current_line_height) {
+        state.current_line_height = text_props.height + padding * 2 + margin_bottom;
+    }
+    if((state.pos_ptr.values[0] - state.current_div.aabb.pos.values[0] + text_props.width + padding * 2.0f) + margin_right + margin_left >= state.current_div.aabb.size.values[0]) {
+        lf_next_line();
+    }
+    state.pos_ptr.values[0] += margin_left;
+    state.pos_ptr.values[1] += margin_top;
+    if(state.pos_ptr.values[1] + text_props.height + margin_bottom + padding * 2.0f >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return LF_CLICKABLE_ITEM_STATE_IDLE;
+    LfClickableItemState ret = clickable_item(state.pos_ptr, (LfVec2i){width == -1 ? text_props.width : width + padding * 2, ((height == -1) ? text_props.height : height) + padding * 2}, state.theme.button_props);
+    lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding + ((width != -1) ? width / 2.0f - text_props.width / 2.0f : 0), state.pos_ptr.values[1] + padding}, text, state.theme.font, state.theme.button_props, state.current_div.aabb.size.values[0] - margin_right * 2.0f - padding * 2.0f,
+                   true, false);
+
+    state.pos_ptr.values[0] += ((width == -1) ? text_props.width : width) + margin_right + padding;
     state.pos_ptr.values[1] -= margin_top;
     return ret;
 }
