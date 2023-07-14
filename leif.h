@@ -48,12 +48,13 @@ typedef enum {
 
 typedef struct {
     float width, height;
+    uint32_t char_count;
 } LfTextProps;
 
 typedef enum {
-    LF_CLICKABLE_ITEM_STATE_IDLE = 0,
-    LF_CLICKABLE_ITEM_STATE_HOVERED = 1,
-    LF_CLICKABLE_ITEM_STATE_CLICKED = 2
+    LF_IDLE = 0,
+    LF_HOVERED = 1,
+    LF_CLICKED = 2
 } LfClickableItemState;
 
 typedef struct {
@@ -77,9 +78,7 @@ LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width
 
 LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filter); 
 
-void lf_free_font(LfFont* font);  
-
-void lf_flush();
+void lf_free_font(LfFont* font); 
 
 void lf_add_key_callback(void* cb);
 
@@ -129,8 +128,6 @@ LfUIElementProps lf_style_color(LfVec4f color);
 
 void lf_next_line();
 
-void lf_update_input();
-
 LfTextProps lf_get_text_props(const char* str);
 
 void lf_text(const char* fmt, ...);
@@ -144,3 +141,7 @@ void lf_set_ptr_y(float y);
 void lf_image(uint32_t tex_id, uint32_t width, uint32_t height);
 
 LfTheme* lf_theme();
+
+void lf_update();
+
+void lf_input(char* buf, int32_t width, int32_t height);

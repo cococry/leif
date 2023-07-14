@@ -32,18 +32,22 @@ int main(int argc, char* argv[]) {
 
     lf_init_glfw(win_w, win_h, NULL, window);    
     glfwSetFramebufferSizeCallback(window, resize_callback);
+    float lastTime = 0.0f;
+    float deltaTime = 0.0f;
+    char buf[512];
+    buf[0] = '\0';
     while(!glfwWindowShouldClose(window)) {
+        float currentTime = glfwGetTime();
+        deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
         glClear(GL_COLOR_BUFFER_BIT);
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 
         lf_div_begin((LfVec2i){0, 0}, (LfVec2i){win_w, win_h});
-        lf_button_fixed("Hello", 150, -1);
-        lf_button("Hello");
-        lf_button_fixed("Hello", 150, -1);
+        lf_input(buf, 150, 20);
         lf_div_end();
 
-        lf_flush();
-        lf_update_input();
+        lf_update();
 
         glfwPollEvents();
         glfwSwapBuffers(window);
