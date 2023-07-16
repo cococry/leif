@@ -49,6 +49,7 @@ typedef enum {
 typedef struct {
     float width, height;
     uint32_t char_count;
+    bool reached_stop;
 } LfTextProps;
 
 typedef enum {

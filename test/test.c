@@ -45,6 +45,11 @@ int main(int argc, char* argv[]) {
 
         lf_div_begin((LfVec2i){0, 0}, (LfVec2i){win_w, win_h});
         lf_input(buf, 150, 20);
+        lf_next_line();
+        if(lf_button("Hello") == LF_CLICKED) {
+            glfwSetWindowShouldClose(window, true);
+        }
+        lf_button("Harry");
         lf_div_end();
 
         lf_update();

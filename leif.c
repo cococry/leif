@@ -926,7 +926,6 @@ LfTextProps lf_text_render(LfVec2i pos, const char* str, LfFont font, LfUIElemen
     float x = pos.values[0];
     float y = pos.values[1];
     int32_t max_char_height = -1;
-    int32_t max_y_vert = -1;
     int32_t char_count = 0;
     float width = 0;
     bool new_line = false;
@@ -940,9 +939,15 @@ LfTextProps lf_text_render(LfVec2i pos, const char* str, LfFont font, LfUIElemen
         if(height > max_char_height) {
             max_char_height = height;
         }
-        if(y1 > max_y_vert) {
-            max_y_vert = y1;
-        }
+    }
+
+    int max_descended_char_height;
+    {
+        float fontScale = stbtt_ScaleForPixelHeight(font.font_info, font.font_size);
+        int xmin, ymin, xmax, ymax;
+        int codepoint = 'y';
+        stbtt_GetCodepointBitmapBox(font.font_info, codepoint, fontScale, fontScale, &xmin, &ymin, &xmax, &ymax);
+        max_descended_char_height = ymax - ymin;
     }
     while(*str) { 
         bool skip = false;
@@ -960,33 +965,33 @@ LfTextProps lf_text_render(LfVec2i pos, const char* str, LfFont font, LfUIElemen
         if(!skip) {
             stbtt_aligned_quad q;
             stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
-            if(x - pos.values[0] >= stop_point && stop_point != -1) {
-                width = x - pos.values[0];
-                return (LfTextProps){.width = width, .height = max_char_height, .char_count = char_count };
+            if(x - pos.values[0] > stop_point && stop_point != -1) {
+                if(!new_line)
+                    width = x - pos.values[0];
+                return (LfTextProps){.width = width, .height = max_char_height, .char_count = char_count, .reached_stop = true };
             }
-            if(!no_render)  { 
+            if(!no_render)  {
+                LfVec2f texcoords[6] = {
+                    q.s0, q.t0, 
+                    q.s0, q.t1, 
+                    q.s1, q.t1, 
+
+                    q.s0, q.t0, 
+                    q.s1, q.t1, 
+                    q.s1, q.t0
+                };
                 for(uint32_t i = 0; i < 6; i++) {
                     LfVec2f verts[6] = {
-                        (LfVec2f){q.x0, q.y0}, 
-                        (LfVec2f){q.x0, q.y1}, 
-                        (LfVec2f){q.x1, q.y1},
+                        (LfVec2f){q.x0, q.y0 + max_descended_char_height}, 
+                        (LfVec2f){q.x0, q.y1 + max_descended_char_height}, 
+                        (LfVec2f){q.x1, q.y1 + max_descended_char_height},
 
-                        (LfVec2f){q.x0, q.y0},
-                        (LfVec2f){q.x1, q.y1}, 
-                        (LfVec2f){q.x1, q.y0}
-                    };
-                    for(uint32_t i = 0; i < 6; i++) {
-                        verts[i].values[1] += max_char_height - (max_y_vert); 
-                    }
-                    LfVec2f texcoords[6] = {
-                        q.s0, q.t0, 
-                        q.s0, q.t1, 
-                        q.s1, q.t1, 
+                        (LfVec2f){q.x0, q.y0 + max_descended_char_height},
+                        (LfVec2f){q.x1, q.y1 + max_descended_char_height}, 
+                        (LfVec2f){q.x1, q.y0 + max_descended_char_height}
+                    }; 
 
-                        q.s0, q.t0, 
-                        q.s1, q.t1, 
-                        q.s1, q.t0
-                    };
+
                     state.render.verts[state.render.vert_count].pos = verts[i]; 
                     state.render.verts[state.render.vert_count].color = props.text_color;
                     state.render.verts[state.render.vert_count].texcoord = texcoords[i];
@@ -1000,7 +1005,7 @@ LfTextProps lf_text_render(LfVec2i pos, const char* str, LfFont font, LfUIElemen
     }
     if(!new_line)
         width = x - pos.values[0];
-    return (LfTextProps){.width = width, .height = max_char_height, .char_count = char_count};
+    return (LfTextProps){.width = width, .height = max_char_height, .char_count = char_count, .reached_stop = false};
 }
 
 void flush() {
@@ -1257,8 +1262,8 @@ void lf_update() {
     flush();
 }
 
-static int32_t i1 = 0;
-static int32_t i2 = 0;
+static uint32_t win_start = 0;
+static uint32_t win_end = 0;
 void lf_input(char* buf, int32_t width, int32_t height) {
     if(!buf) return;
     float padding = 10;
@@ -1268,30 +1273,28 @@ void lf_input(char* buf, int32_t width, int32_t height) {
     float margin_bottom = 10;
     state.pos_ptr.values[0] += margin_left;
     state.pos_ptr.values[1] += margin_top;
-    if(lf_key_went_down(GLFW_KEY_RIGHT)) {
-        i1++;
-        i2++;
-    }
-    if(lf_key_went_down(GLFW_KEY_LEFT)) {
-        if(i1 >= 1) {
-            i1--;
-            i2--;
+    LfTextProps text_props =  lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, 
+                                    buf, state.theme.font, state.theme.text_props, 0.0f, width, true, true); 
+    if(state.ch_ev.happened) {
+        int32_t* ch = &state.ch_ev.charcode;
+        printf("%i\n", state.ch_ev.charcode);
+        strcat(buf, (char*)ch);
+        text_props = lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, 
+                                    buf, state.theme.font, state.theme.text_props, 0.0f, width, true, true);
+        if(text_props.reached_stop) {
+            win_start++;
         }
     }
-    if(state.ch_ev.happened) {
-        int32_t* charcode = &state.ch_ev.charcode;
-        strcat(buf, (char*)charcode);
-        i2 = strlen(buf) - i1;
+    
+    lf_rect(state.pos_ptr, (LfVec2i){width + padding, state.theme.font.font_size + padding}, state.theme.button_props.color);
+
+    win_end = win_start + text_props.char_count;
+
+    char win_text[(win_end - win_start) + 1];
+    uint32_t win_i = 0;
+    for(uint32_t i = win_start; i < win_end; i++) {
+        win_text[win_i++] = buf[i];
     }
-    int32_t len = i2 - i1 + 1;
-    char txt[len];
-    memcpy(txt, buf + i1, len);
-    txt[len] = '\0';
-
-    LfTextProps text_props = lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, txt, state.theme.font, state.theme.text_props, 
-        0.0f, width - padding, true, true);
-    lf_rect(state.pos_ptr, (LfVec2i){width, height + padding * 2.0f}, state.theme.button_props.color);
-    lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, txt, state.theme.font, state.theme.text_props, 
-        0.0f, width - padding, true, false);
-
+    win_text[win_i] = '\0';
+    lf_text_render((LfVec2i){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, win_text, state.theme.font, state.theme.text_props, 0.0f, width, true, false);
 }
