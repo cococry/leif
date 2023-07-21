@@ -50,6 +50,9 @@ typedef struct {
     float width, height;
     uint32_t char_count;
     bool reached_stop;
+    float first_char_width, last_char_width; 
+    char rendered_text[256];
+    int32_t end_x, start_x;
 } LfTextProps;
 
 typedef enum {
@@ -73,7 +76,7 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, LfTheme* them
 
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
-void lf_rect(LfVec2i pos, LfVec2i size, LfVec4f color);
+void lf_rect(LfVec2f pos, LfVec2i size, LfVec4f color);
 
 LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
 
@@ -117,7 +120,7 @@ double lf_get_mouse_scroll_x();
 
 double lf_get_mouse_scroll_y();
 
-LfClickableItemState lf_div_begin(LfVec2i pos, LfVec2i size);
+LfClickableItemState lf_div_begin(LfVec2f pos, LfVec2i size);
 
 void lf_div_end();
 
@@ -145,4 +148,4 @@ LfTheme* lf_theme();
 
 void lf_update();
 
-void lf_input(char* buf, int32_t width, int32_t height);
+void lf_input(char* buf, int32_t width);

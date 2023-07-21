@@ -36,6 +36,9 @@ int main(int argc, char* argv[]) {
     float deltaTime = 0.0f;
     char buf[512];
     buf[0] = '\0';
+    bool submitted = false;
+
+    LfTexture tex = lf_tex_create("../test/textures/norway.jpg", false, LF_TEX_FILTER_LINEAR);
     while(!glfwWindowShouldClose(window)) {
         float currentTime = glfwGetTime();
         deltaTime = currentTime - lastTime;
@@ -43,13 +46,10 @@ int main(int argc, char* argv[]) {
         glClear(GL_COLOR_BUFFER_BIT);
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 
-        lf_div_begin((LfVec2i){0, 0}, (LfVec2i){win_w, win_h});
-        lf_input(buf, 150, 20);
+        lf_div_begin((LfVec2f){0, 0}, (LfVec2i){win_w, win_h});
+        lf_input(buf, 300);
         lf_next_line();
-        if(lf_button("Hello") == LF_CLICKED) {
-            glfwSetWindowShouldClose(window, true);
-        }
-        lf_button("Harry");
+        lf_image(tex.id, tex.width, tex.height);
         lf_div_end();
 
         lf_update();
