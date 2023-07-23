@@ -1362,11 +1362,8 @@ void lf_input(char* buf, int32_t width) {
         printf("Rendered Char Count: %i\n", text_props.char_count);
         if((text_props.width >= width - padding)) {
             offset += text_props.last_char_width;
-            win_index = text_props.char_count;
-        } else {
-            win_index++;
+            win_index = strlen(text_props.rendered_text);
         }
-        text_index++;
     }
 
     lf_rect(state.pos_ptr, (LfVec2i){width + padding * 2.0f, state.theme.font.font_size + padding * 2.0f}, state.theme.button_props.color);
@@ -1378,17 +1375,19 @@ void lf_input(char* buf, int32_t width) {
                    state.theme.font, state.theme.text_props, 0.0f, width + padding + offset, state.pos_ptr.values[0] + padding + text_props_first_rendered.first_char_width, true, false);
 
     if(lf_key_went_down(GLFW_KEY_BACKSPACE)) {
+        LfTextProps text_props = lf_text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f},
+                                                buf, state.theme.font, state.theme.text_props, 0.0f, width + padding + offset, state.pos_ptr.values[0] + padding + text_props_first_rendered.first_char_width, true, true);
         if(text_index != 0) {
-        LfTextProps text_props = lf_text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f -  get_max_char_height_font(state.theme.font) / 2.0}, buf, 
-                                                state.theme.font, state.theme.text_props, 0.0f, width + padding + offset, state.pos_ptr.values[0] + padding + text_props_first_rendered.first_char_width, true, true);
-        if(win_index >= (int32_t)text_props_rendered.char_count && offset - text_props.last_char_width >= 0) {
-            offset -= text_props.last_char_width;
-        } else {
-            win_index--;
-        }
-        remove_i_str(buf, text_index - 1);
-        if(text_index - 1 >= 0) 
-            text_index--;
+            if(text_props.width >= width - padding) {
+                if(offset - text_props.last_char_width >= 0)
+                    offset -= text_props.last_char_width;
+                remove_i_str(buf, text_index - 1);
+            } else {
+                remove_i_str(buf, text_index - 1);
+                win_index--;
+            }
+            if(text_index - 1 >= 0) 
+                text_index--;
         }
     }
     if(lf_key_went_down(GLFW_KEY_RIGHT)) {
@@ -1399,20 +1398,10 @@ void lf_input(char* buf, int32_t width) {
         } else if(win_index < (int32_t)text_props_rendered.char_count){
             win_index++;
         }
-        text_index++;
+        if(text_index + 1 <= (int32_t)strlen(buf) - 1) 
+            text_index++;
     }
-    if(lf_key_went_down(GLFW_KEY_LEFT)) {
-        LfTextProps text_props = lf_text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f},
-                                                buf, state.theme.font, state.theme.text_props, 0.0f, width + padding + offset, state.pos_ptr.values[0] + padding + text_props_first_rendered.first_char_width, true, true);
-        if(win_index == 0) {
-            if(offset - text_props.first_char_width >= 0)
-                offset -= text_props.first_char_width;
-        }
-        else {
-            win_index--;
-        }
-        text_index--;
-    }
+        printf("Text amount: %i\n", text_props_rendered.char_count);
        char cursor_slice[strlen(buf)];
     for(uint32_t i = 0; i <= (uint32_t)win_index; i++) {
         cursor_slice[i] = text_props_rendered.rendered_text[i];
@@ -1425,4 +1414,28 @@ void lf_input(char* buf, int32_t width) {
     lf_rect((LfVec2f){cursor_pos_props.end_x, state.pos_ptr.values[1] + padding}, 
             (LfVec2i){1, text_props_rendered.height}, (LfVec4f){LF_WHITE});
     state.pos_ptr.values[0] = width + padding * 2.0f;
+    if(state.ch_ev.happened) {
+        LfTextProps text_props = lf_text_render((LfVec2f){(state.pos_ptr.values[0] + padding) - offset, state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, buf, 
+                                                state.theme.font, state.theme.text_props, 0.0f, width + padding + offset, state.pos_ptr.values[0] + padding + text_props_first_rendered.first_char_width, true, true);
+        if((text_props.width < width - padding)) {
+            win_index++;
+        }
+        text_index++;
+     }
+    if(lf_key_went_down(GLFW_KEY_LEFT)) {
+        LfTextProps text_props = lf_text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f},
+                                                buf, state.theme.font, state.theme.text_props, 0.0f, width + padding + offset, state.pos_ptr.values[0] + padding + text_props_first_rendered.first_char_width, true, true);
+        if(win_index >= (int32_t)text_props_rendered.char_count - 1) {
+            win_index = text_props_rendered.char_count - 1;
+        }
+        if(win_index == 0) {
+            if(offset - text_props.first_char_width >= 0)
+                offset -= text_props.first_char_width;
+        }
+        else {
+            win_index--;
+        }
+        if(text_index - 1 >= 0)
+            text_index--;
+    }
 }
