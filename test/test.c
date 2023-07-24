@@ -38,6 +38,9 @@ int main(int argc, char* argv[]) {
     buf[0] = '\0';
     bool submitted = false;
 
+    LfInputField input;
+    input.buf = buf;
+    input.width = 300;
     LfTexture tex = lf_tex_create("../test/textures/norway.jpg", false, LF_TEX_FILTER_LINEAR);
     while(!glfwWindowShouldClose(window)) {
         float currentTime = glfwGetTime();
@@ -47,8 +50,9 @@ int main(int argc, char* argv[]) {
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 
         lf_div_begin((LfVec2f){0, 0}, (LfVec2i){win_w, win_h});
-        lf_input(buf, 300);
+        lf_input(&input);
         lf_next_line();
+        lf_image(tex.id, tex.width, tex.height);
         lf_image(tex.id, tex.width, tex.height);
         lf_div_end();
 

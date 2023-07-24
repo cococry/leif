@@ -50,10 +50,14 @@ typedef struct {
     float width, height;
     uint32_t char_count;
     bool reached_stop;
-    float first_char_width, last_char_width; 
     char rendered_text[256];
     int32_t end_x, start_x;
 } LfTextProps;
+
+typedef struct {
+    int32_t cursor_index, width;
+    char* buf;
+} LfInputField;
 
 typedef enum {
     LF_IDLE = 0,
@@ -148,4 +152,4 @@ LfTheme* lf_theme();
 
 void lf_update();
 
-void lf_input(char* buf, int32_t width);
+void lf_input(LfInputField* input);
