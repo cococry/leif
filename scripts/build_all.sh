@@ -1,5 +1,3 @@
-cd ../
-make
-cd test/
-make
+make -C ../
+make -C test/
 cd ../
