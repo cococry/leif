@@ -1,5 +1,4 @@
-cd ../
-make
-cd test/
-make
-cd ../
+#!/usr/bin/env bash
+
+make -C ../
+make -C test/
