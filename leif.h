@@ -57,6 +57,8 @@ typedef struct {
 typedef struct {
     int32_t cursor_index, width;
     char* buf;
+    char* placeholder;
+    bool selected;
 } LfInputField;
 
 typedef enum {
@@ -71,18 +73,23 @@ typedef struct {
 } LfUIElementProps;
 
 typedef struct {
-    LfUIElementProps button_props, div_props, text_props, image_props;
+    LfUIElementProps button_props, div_props, text_props, image_props, 
+                     inputfield_props;
     LfFont font;
 } LfTheme;
 
 
-void lf_init_glfw(uint32_t display_width, uint32_t display_height, LfTheme* theme, void* glfw_window);
+void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* font_path, LfTheme* theme, void* glfw_window);
+
+void lf_terminate();
+
+LfTheme lf_default_theme();
 
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
 void lf_rect(LfVec2f pos, LfVec2i size, LfVec4f color);
 
-LfFont lf_load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
+LfFont lf_load_font(const char* filepath, uint32_t size);
 
 LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filter); 
 
@@ -146,7 +153,7 @@ void lf_set_ptr_x(float x);
 
 void lf_set_ptr_y(float y);
 
-void lf_image(uint32_t tex_id, uint32_t width, uint32_t height);
+void lf_image(LfTexture tex);
 
 LfTheme* lf_theme();
 

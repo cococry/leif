@@ -30,18 +30,20 @@ int main(int argc, char* argv[]) {
         printf("Failed to initialize Glad.\n");
     }
 
-    lf_init_glfw(win_w, win_h, NULL, window);    
+    LfTheme theme = lf_default_theme();
+    theme.image_props.margin_bottom = 0;
+    theme.image_props.margin_top = 0;
+    theme.image_props.margin_left = 0;
+    theme.image_props.margin_right = 0;
+    lf_init_glfw(win_w, win_h, "../test/fonts/arial.ttf", &theme, window);   
     glfwSetFramebufferSizeCallback(window, resize_callback);
     float lastTime = 0.0f;
     float deltaTime = 0.0f;
-    char buf[512];
-    buf[0] = '\0';
-    bool submitted = false;
+    char buf[512] = {0};
+    char buf2[512] = {0};
 
-    LfInputField input;
-    input.buf = buf;
-    input.width = 300;
     LfTexture tex = lf_tex_create("../test/textures/norway.jpg", false, LF_TEX_FILTER_LINEAR);
+    bool loaded = false;
     while(!glfwWindowShouldClose(window)) {
         float currentTime = glfwGetTime();
         deltaTime = currentTime - lastTime;
@@ -50,10 +52,9 @@ int main(int argc, char* argv[]) {
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 
         lf_div_begin((LfVec2f){0, 0}, (LfVec2i){win_w, win_h});
-        lf_input(&input);
-        lf_next_line();
-        lf_image(tex.id, tex.width, tex.height);
-        lf_image(tex.id, tex.width, tex.height);
+        for(uint32_t i = 0; i < 16; i++) {
+            lf_image((LfTexture){.id = tex.id, .width = 160, .height = 90});
+        }
         lf_div_end();
 
         lf_update();
