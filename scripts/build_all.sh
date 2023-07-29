@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 
 make -C ../
-make -C test/
+make -C ../test/

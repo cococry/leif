@@ -83,7 +83,7 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* f
 
 void lf_terminate();
 
-LfTheme lf_default_theme();
+LfTheme lf_default_theme(const char* font_path, uint32_t font_size);
 
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
@@ -143,7 +143,7 @@ LfUIElementProps lf_style_color(LfVec4f color);
 
 void lf_next_line();
 
-LfTextProps lf_get_text_props(const char* str);
+LfVec2f lf_text_dimension(const char* str);
 
 void lf_text(const char* fmt, ...);
 
