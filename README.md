@@ -52,7 +52,7 @@ This will populate the bin directory
 with the libleif.a file which you can link
 with. 
 
-### Example with GCC
+*Example with GCC*
 ```console
 gcc -o program program.c -Ileif -Lbin -lleif -lfglfw
 ```
