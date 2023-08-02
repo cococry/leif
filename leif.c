@@ -226,7 +226,7 @@ static void                     rect_render(LfVec2f pos, LfVec2i size, LfVec4f c
 static void                     image_render(LfVec2f pos, LfVec4f color, LfTexture tex);
 static void                     input_field(LfInputField* input, InputFieldType type);
 LfFont                          load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
-static bool                     hovered(LfVec2f pos, LfVec2f size);
+static bool                     hovered(LfVec2f pos, LfVec2i size);
 static void                     next_line_on_overflow(LfVec2f size);
 
 // Utility
@@ -696,17 +696,15 @@ LfClickableItemState clickable_item(LfVec2f pos, LfVec2i size, LfUIElementProps 
         LF_ERROR("Trying to render clickable item without div context. Call lf_div_begin()");
         return(LfClickableItemState){0};
     }
-    bool hovered = lf_get_mouse_x() <= (pos.values[0] + size.values[0]) && lf_get_mouse_x() >= (pos.values[0]) && 
-        lf_get_mouse_y() <= (pos.values[1] + size.values[1]) && lf_get_mouse_y() >= (pos.values[1]);
-
+    bool is_hovered = hovered(pos, size);
     rect_render((LfVec2f){pos.values[0] - props.border_width, pos.values[1] - props.border_width}, 
-            (LfVec2i){size.values[0] + props.border_width * 2.0f, size.values[1] + props.border_width * 2.0f}, 
-            props.border_color);
-    if(hovered && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT)) {
+                (LfVec2i){size.values[0] + props.border_width * 2.0f, size.values[1] + props.border_width * 2.0f}, 
+                props.border_color);
+    if(is_hovered && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT)) {
         rect_render(pos, size, props.clicked_color);
         return LF_CLICKED;
     }
-    if(hovered && (!lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && !lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT))) {
+    if(is_hovered && (!lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && !lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT))) {
         rect_render(pos, size, props.hover_color);
         return LF_HOVERED;
     }
@@ -1497,7 +1495,7 @@ void insert_i_str(char *str, char ch, int index) {
     }
 }
 
-bool hovered(LfVec2f pos, LfVec2f size) {
+bool hovered(LfVec2f pos, LfVec2i size) {
     bool hovered = lf_get_mouse_x() <= (pos.values[0] + size.values[0]) && lf_get_mouse_x() >= (pos.values[0]) && 
         lf_get_mouse_y() <= (pos.values[1] + size.values[1]) && lf_get_mouse_y() >= (pos.values[1]);
     return hovered;
