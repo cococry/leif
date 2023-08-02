@@ -1,6 +1,6 @@
 #include "leif.h"
+#include <ctype.h>
 #include <glad/glad.h>
-#include <math.h>
 #include <stb_image.h>
 #include <stb_truetype.h>
 
@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
-#include <sys/types.h>
+#include <limits.h>
 
 #ifdef LF_GLFW 
 #define GLFW_INCLUDE_NONE
@@ -146,6 +146,10 @@ typedef struct {
 } CharEvent;
 
 typedef struct {
+    bool happened;
+} GuiReEstablishEvent;
+
+typedef struct {
     uint32_t win_start, win_end;
 } StrWin;
 typedef struct {
@@ -168,7 +172,14 @@ typedef struct {
     CursorPosEvent cp_ev;
     ScrollEvent scr_ev;
     CharEvent ch_ev;
+    GuiReEstablishEvent gui_re_ev;
 } LfState;
+
+typedef enum {
+    INPUT_INT = 0, 
+    INPUT_FLOAT, 
+    INPUT_TEXT
+} InputFieldType;
 
 static LfState state;
 
@@ -211,15 +222,20 @@ static bool                     aabb_intersects_aabb(LfAABB a, LfAABB b);
 // --- UI ---
 static LfClickableItemState     clickable_item(LfVec2f pos, LfVec2i size, LfUIElementProps props);
 static LfTextProps              text_render(LfVec2f pos, const char* str, LfFont font, LfUIElementProps props, int32_t wrap_point, int32_t stop_point, int32_t start_point, bool no_render);
+static void                     rect_render(LfVec2f pos, LfVec2i size, LfVec4f color);
 static void                     image_render(LfVec2f pos, LfVec4f color, LfTexture tex);
+static void                     input_field(LfInputField* input, InputFieldType type);
 LfFont                          load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
+static bool                     hovered(LfVec2f pos, LfVec2f size);
+static void                     next_line_on_overflow(LfVec2f size);
+
+// Utility
+static int                      closes_num_in_arr(int arr[], int n, int target);
 static int32_t                  get_max_char_height_font(LfFont font);
 static double                   get_char_width(LfFont font, char c);
 static float                    get_kerning(int prev_character_codepoint, int current_character_codepoint);
 static void                     remove_i_str(char *str, int index);
 static void                     insert_i_str(char *str, char ch, int index);
-static bool                     hovered(LfVec2f pos, LfVec2f size);
-static void                     next_line_on_overflow(LfVec2f size);
 
 // --- Input ---
 #ifdef LF_GLFW
@@ -683,15 +699,18 @@ LfClickableItemState clickable_item(LfVec2f pos, LfVec2i size, LfUIElementProps 
     bool hovered = lf_get_mouse_x() <= (pos.values[0] + size.values[0]) && lf_get_mouse_x() >= (pos.values[0]) && 
         lf_get_mouse_y() <= (pos.values[1] + size.values[1]) && lf_get_mouse_y() >= (pos.values[1]);
 
+    rect_render((LfVec2f){pos.values[0] - props.border_width, pos.values[1] - props.border_width}, 
+            (LfVec2i){size.values[0] + props.border_width * 2.0f, size.values[1] + props.border_width * 2.0f}, 
+            props.border_color);
     if(hovered && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT)) {
-        lf_rect(pos, size, props.clicked_color);
+        rect_render(pos, size, props.clicked_color);
         return LF_CLICKED;
     }
     if(hovered && (!lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && !lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT))) {
-        lf_rect(pos, size, props.hover_color);
+        rect_render(pos, size, props.hover_color);
         return LF_HOVERED;
     }
-    lf_rect(pos, size, props.color);
+    rect_render(pos, size, props.color);
     return LF_IDLE;
 }
 
@@ -823,7 +842,9 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
         .margin_right = 10, 
         .margin_top = 10, 
         .margin_bottom = 10,
-        .padding = 0
+        .padding = 0, 
+        .border_width = 0,
+        .border_color = (LfVec4f){0, 0, 0, 0}
     };
     theme.button_props = (LfUIElementProps){ 
         .color = (LfVec4f){LF_RGBA(133, 138, 148, 255)}, 
@@ -834,7 +855,9 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
         .margin_left = 10, 
         .margin_right = 10, 
         .margin_top = 10, 
-        .margin_bottom = 10
+        .margin_bottom = 10, 
+        .border_width = 4, 
+        .border_color = (LfVec4f){LF_BLACK} 
     };
     theme.image_props = (LfUIElementProps){ 
         .color = (LfVec4f){LF_RGBA(255, 255, 255, 255)}, 
@@ -852,7 +875,9 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
         .margin_right = 10, 
         .margin_top = 10, 
         .margin_bottom = 10, 
-        .padding = 10
+        .padding = 10, 
+        .border_width = 4,
+        .border_color = (LfVec4f){LF_BLACK}
     };
     theme.font = load_font(font_path, font_size, 1024, 1024, 256, 5); 
     return theme;
@@ -868,7 +893,7 @@ void lf_resize_display(uint32_t display_width, uint32_t display_height) {
 }
 
 
-void lf_rect(LfVec2f pos, LfVec2i size, LfVec4f color) {
+void rect_render(LfVec2f pos, LfVec2i size, LfVec4f color) {
     pos = (LfVec2f){pos.values[0] + size.values[0] / 2.0f, pos.values[1] + size.values[1] / 2.0f};
 
     LfVec2f texcoords[6] = {
@@ -932,6 +957,128 @@ void image_render(LfVec2f pos, LfVec4f color, LfTexture tex) {
         state.render.vert_count++;
     } 
 }
+void input_field(LfInputField* input, InputFieldType type) {
+    if(!input->buf) return;
+    float padding = state.theme.inputfield_props.padding;
+    float margin_left = state.theme.inputfield_props.margin_left;
+    float margin_right = state.theme.inputfield_props.margin_right;
+    float margin_top = state.theme.inputfield_props.margin_top;
+    float margin_bottom = state.theme.inputfield_props.margin_bottom;
+    float border_width = state.theme.inputfield_props.border_width;
+    
+    int32_t cursor_index_pre = input->cursor_index;
+    next_line_on_overflow(
+        (LfVec2f){input->width + padding * 2.0f + margin_left + margin_right + border_width * 2.0f, 
+                  state.theme.font.font_size + padding * 2 + border_width * 2.0f} 
+    );
+    state.pos_ptr.values[0] += margin_left + border_width;
+    state.pos_ptr.values[1] += margin_top + border_width;
+    if(input->selected) {
+        if(lf_key_went_down(GLFW_KEY_BACKSPACE)) {
+            if(input->cursor_index - 1 >= 0) {
+                remove_i_str(input->buf, input->cursor_index - 1);
+                input->cursor_index--;
+            }
+        }  
+        if(lf_key_went_down(GLFW_KEY_RIGHT)) {
+            if(input->cursor_index <= (int32_t)strlen(input->buf) - 1) {
+                input->cursor_index++;
+            }
+        }
+        if(lf_key_went_down(GLFW_KEY_LEFT)) {
+            if(input->cursor_index - 1 >= 0)
+                input->cursor_index--;
+        }
+        if(state.ch_ev.happened) {
+            switch(type) {
+                case INPUT_FLOAT: {
+                    char* end_ptr;
+                    double val;
+                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
+                    val = strtod(input->buf,&end_ptr);
+                    if(*end_ptr == '\0') {
+                        input->cursor_index++;
+                    } else {
+                        remove_i_str(input->buf, input->cursor_index);
+                    }
+                    break;
+                }
+                case INPUT_INT: {        
+                    if(isdigit(state.ch_ev.charcode)) {
+                        insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
+                        input->cursor_index++;
+                    }
+                    break;
+                }
+                case INPUT_TEXT: {
+                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
+                    input->cursor_index++;
+                    break;
+                }   
+            }
+        }
+    }
+    LfClickableItemState item = clickable_item(state.pos_ptr, 
+                                               (LfVec2i){input->width + padding * 2.0f,
+                                                state.theme.font.font_size + padding * 2.0f},
+                                                state.theme.inputfield_props); 
+    if(item == LF_CLICKED && !input->selected) {
+        input->selected = true; 
+        input->cursor_index = strlen(input->buf);
+    }  else if(item == LF_IDLE && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && input->selected) {
+        input->selected = false;
+    }
+    LfTextProps text_props_rendered = text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
+        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, input->buf, 
+                                                     state.theme.font, state.theme.inputfield_props, -1, input->width + padding, state.pos_ptr.values[0] + padding, false);
+        
+    if(input->selected) {
+        char cursor_slice[strlen(input->buf)];
+        for(uint32_t i = 0; i <= (uint32_t)input->cursor_index; i++) {
+            cursor_slice[i] = input->buf[i];
+        }
+        cursor_slice[input->cursor_index] = '\0';
+        LfTextProps cursor_pos_props = text_render((LfVec2f){text_props_rendered.start_x, 
+            state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, cursor_slice, 
+                                                      state.theme.font, state.theme.inputfield_props, -1, input->width + padding, state.pos_ptr.values[0] + padding,true);
+
+        if(state.ch_ev.happened || state.gui_re_ev.happened) {
+            char text_buf[strlen(input->buf)];
+            memset(text_buf, 0, sizeof(text_buf));
+            for(uint32_t i = 0; i < strlen(input->buf); i++) {
+                input->char_positions[i] = lf_get_tex_end(text_buf, state.pos_ptr.values[0] + padding);
+                int32_t len = strlen(text_buf);
+                text_buf[len] = input->buf[i];
+                text_buf[len + 1] = '\0';
+            }
+        }
+        rect_render((LfVec2f){(strlen(input->buf) != 0) ? cursor_pos_props.end_x : state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, 
+                (LfVec2i){1, state.theme.font.font_size}, state.theme.inputfield_props.text_color);
+    } else if(!input->selected && strlen(input->buf) == 0) {
+        text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
+        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, !input->placeholder ? "Type..." : input->placeholder, state.theme.font, state.theme.inputfield_props, -1, -1, -1, false); 
+    }
+    if(item == LF_CLICKED) {
+        if(lf_get_mouse_x() > input->char_positions[strlen(input->buf) - 1]) {
+            input->cursor_index = strlen(input->buf);
+        } else {
+            int32_t val = closes_num_in_arr(input->char_positions, strlen(input->buf) + 1, lf_get_mouse_x());
+            for(uint32_t i = 0; i < strlen(input->buf) + 1; i++) {
+                if(input->char_positions[i] == val) {
+                    input->cursor_index = i;
+                    break;
+                }
+            }
+        }
+    } 
+    state.pos_ptr.values[0] += input->width + margin_right + padding * 2.0f + border_width;
+    state.pos_ptr.values[1] -= margin_top + border_width;
+    if(type == INPUT_FLOAT)
+        *(float*)input->val = atof(input->buf);
+    else if(type == INPUT_INT)
+        *(int32_t*)input->val = atoi(input->buf);
+
+}
 
 static int32_t get_max_char_height_font(LfFont font) {
     float fontScale = stbtt_ScaleForPixelHeight(font.font_info, font.font_size);
@@ -969,7 +1116,6 @@ LfTextProps text_render(LfVec2f pos, const char* str, LfFont font, LfUIElementPr
     int32_t first_char_index = 0;
     int32_t i = 0;
 
-
     int32_t height = get_max_char_height_font(font);
     float width = 0;
     int32_t char_count = 0;
@@ -1000,7 +1146,8 @@ LfTextProps text_render(LfVec2f pos, const char* str, LfFont font, LfUIElementPr
                 ret.width = width; 
                 ret.height = height;
                 ret.char_count = i - first_char_index; 
-                ret.reached_stop = reached_stop; 
+                ret.reached_stop = reached_stop;
+                ret.end_x = x;
                 return ret;
             }
             if((start_point != -1 && x >= start_point) || start_point == -1)  {
@@ -1036,7 +1183,6 @@ LfTextProps text_render(LfVec2f pos, const char* str, LfFont font, LfUIElementPr
                         state.render.vert_count++;
                     }
                 }
-                ret.rendered_text[char_count] = *str;
                 char_count++;
                 last_char_width = x - last_x;
                 last_x = x;
@@ -1152,48 +1298,46 @@ LfClickableItemState lf_button(const char* text) {
     float padding = state.theme.button_props.padding;
     float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
         margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom; 
+    float border_width = state.theme.button_props.border_width;
     LfTextProps text_props = text_render(state.pos_ptr, text, state.theme.font, state.theme.button_props, -1, -1, -1, true);
     
     next_line_on_overflow(
-        (LfVec2f){text_props.width + padding * 2.0f + margin_right + margin_left, 
-                    text_props.height + padding * 2.0f + margin_bottom + margin_top});
+        (LfVec2f){text_props.width + padding * 2.0f + margin_right + margin_left + border_width * 2.0f, 
+                    text_props.height + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f});
 
-    state.pos_ptr.values[0] += margin_left;
-    state.pos_ptr.values[1] += margin_top;
-    if(state.pos_ptr.values[1] + text_props.height + margin_bottom + padding * 2.0f >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return LF_IDLE;
+    state.pos_ptr.values[0] += margin_left + border_width;
+    state.pos_ptr.values[1] += margin_top + border_width;
     LfClickableItemState ret = clickable_item(state.pos_ptr, (LfVec2i){text_props.width + padding * 2, text_props.height + padding * 2}, state.theme.button_props);
     text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + text_props.height / 2.0f}, text, state.theme.font, state.theme.button_props, -1, -1, -1, false);
 
-    state.pos_ptr.values[0] += text_props.width + margin_right + padding * 2.0f;
-    state.pos_ptr.values[1] -= margin_top;
+    state.pos_ptr.values[0] += text_props.width + margin_right + padding * 2.0f + border_width;
+    state.pos_ptr.values[1] -= margin_top + border_width;
 
-    if(text_props.height + padding * 2.0f + margin_bottom + margin_top > state.current_line_height) {
-        state.current_line_height = text_props.height + margin_bottom;
-    }
     return ret; 
 }
 LfClickableItemState lf_button_fixed(const char* text, int32_t width, int32_t height) {
     float padding = state.theme.button_props.padding;
     float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
         margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom;
+    float border_width = state.theme.button_props.border_width;
 
-    LfTextProps text_props = text_render(state.pos_ptr, text, state.theme.font, state.theme.button_props, -1, -1, -1, true);
+     LfTextProps text_props = text_render(state.pos_ptr, text, state.theme.font, state.theme.button_props, -1, -1, -1, true);
     next_line_on_overflow(
-        (LfVec2f){((width == -1) ? text_props.width : width + padding * 2.0f) + margin_right + margin_left,
-            ((height == -1) ? text_props.height : height) + padding * 2.0f + margin_bottom + margin_top}); 
+        (LfVec2f){((width == -1) ? text_props.width : width + padding * 2.0f) + margin_right + margin_left + border_width * 2.0f,
+            ((height == -1) ? text_props.height : height) + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f}); 
 
-    state.pos_ptr.values[0] += margin_left;
-    state.pos_ptr.values[1] += margin_top;
-    if(state.pos_ptr.values[1] + ((height == -1) ? text_props.height : height) + margin_bottom + padding * 2.0f >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return LF_IDLE;
-    LfClickableItemState ret = clickable_item(state.pos_ptr, (LfVec2i){width == -1 ? text_props.width : width + padding * 2, ((height == -1) ? text_props.height : height) + padding * 2}, state.theme.button_props);
+    state.pos_ptr.values[0] += margin_left + border_width;
+    state.pos_ptr.values[1] += margin_top + border_width;
+    LfClickableItemState ret = clickable_item(state.pos_ptr, 
+        (LfVec2i){width == -1 ? text_props.width + padding * 2.0f : width + padding * 2, ((height == -1) ? text_props.height : height) + padding * 2}, state.theme.button_props);
     text_render((LfVec2f)
         {state.pos_ptr.values[0] + padding + ((width != -1) ? width / 2.0f - text_props.width / 2.0f : 0),
         state.pos_ptr.values[1] + padding + ((height != -1) ? height / 2.0f - text_props.height / 2.0f : 0)
         }, text, state.theme.font, state.theme.button_props, -1, -1, -1,
                    false);
 
-    state.pos_ptr.values[0] += ((width == -1) ? text_props.width : width) + margin_right + padding * 2.0f;
-    state.pos_ptr.values[1] -= margin_top;
+    state.pos_ptr.values[0] += ((width == -1) ? text_props.width : width) + margin_right + border_width + padding * 2.0f;
+    state.pos_ptr.values[1] -= margin_top + border_width;
     return ret;
 }
 
@@ -1226,6 +1370,7 @@ void lf_next_line() {
     state.pos_ptr.values[1] += state.current_line_height;
     state.pos_ptr.values[0] = state.current_div.aabb.pos.values[0];
     state.current_line_height = 0;
+    state.gui_re_ev.happened = true;
 }
 
 void update_input() {
@@ -1238,14 +1383,20 @@ void clear_events() {
     state.cp_ev.happened = false;
     state.scr_ev.happened = false;
     state.ch_ev.happened = false;
+    state.gui_re_ev.happened = false;
 }
 LfVec2f lf_text_dimension(const char* str) {
-    LfTextProps props = text_render(state.pos_ptr, str, state.theme.font, state.theme.text_props, 
-                          state.current_div.aabb.pos.values[0] + state.current_div.aabb.size.values[0], -1, -1, true);
+    LfTextProps props = text_render((LfVec2f){0.0f, 0.0f}, str, state.theme.font, state.theme.text_props, 
+                          -1, -1, -1, true);
 
     return (LfVec2f){props.width, props.height};
 }
 
+float lf_get_tex_end(const char* str, float start_x) {
+    LfTextProps props = text_render((LfVec2f){start_x, 0.0f}, str, state.theme.font, state.theme.text_props, 
+                          -1, -1, -1, true);
+    return props.end_x;
+}
 
 void lf_text(const char* fmt, ...) {
     char buf[512];
@@ -1264,8 +1415,9 @@ void lf_text(const char* fmt, ...) {
     state.pos_ptr.values[0] += margin_left;
     state.pos_ptr.values[1] += margin_top;
     if(state.pos_ptr.values[1] + text_props.height + margin_bottom + padding * 2.0f >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return;
-         
-    lf_rect((LfVec2f){state.pos_ptr.values[0], state.pos_ptr.values[1] + margin_top}, (LfVec2i){text_props.width + padding * 2.0f, text_props.height + padding * 2.0f}, state.theme.text_props.color);
+    if(state.theme.text_props.color.values[3] != 0.0f) {
+        rect_render((LfVec2f){state.pos_ptr.values[0], state.pos_ptr.values[1] + margin_top}, (LfVec2i){text_props.width + padding * 2.0f, text_props.height + padding * 2.0f}, state.theme.text_props.color);
+    }
     text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, buf, state.theme.font, state.theme.text_props, -1, -1, -1, false);
     state.pos_ptr.values[0] += text_props.width + margin_right + padding;
     state.pos_ptr.values[1] -= margin_top;
@@ -1359,76 +1511,26 @@ void next_line_on_overflow(LfVec2f size) {
         state.current_line_height = size.values[1];
     }
 }
-void lf_input(LfInputField* input) {
-    if(!input->buf) return;
-    float padding = state.theme.inputfield_props.padding;
-    float margin_left = state.theme.inputfield_props.margin_left;
-    float margin_right = state.theme.inputfield_props.margin_right;
-    float margin_top = state.theme.inputfield_props.margin_top;
-    float margin_bottom = state.theme.inputfield_props.margin_bottom;
-   
-    next_line_on_overflow(
-        (LfVec2f){input->width + padding * 2.0f + margin_left + margin_right, 
-                  state.theme.font.font_size + padding * 2} 
-    );
-    state.pos_ptr.values[0] += margin_left;
-    state.pos_ptr.values[1] += margin_top;
-    if(input->selected) {
-        if(lf_key_went_down(GLFW_KEY_BACKSPACE)) {
-            if(input->cursor_index - 1 >= 0) {
-                remove_i_str(input->buf, input->cursor_index - 1);
-                input->cursor_index--;
-            }
-        }  
-        if(lf_key_went_down(GLFW_KEY_RIGHT)) {
-            if(input->cursor_index <= (int32_t)strlen(input->buf) - 1) {
-                input->cursor_index++;
-            }
-        }
-        if(lf_key_went_down(GLFW_KEY_LEFT)) {
-            if(input->cursor_index - 1 >= 0)
-                input->cursor_index--;
-        }
-        if(state.ch_ev.happened) {
-            insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
-            LfTextProps text_props = text_render((LfVec2f){(state.pos_ptr.values[0] + padding), 
-                state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, input->buf, 
-                                                    state.theme.font, state.theme.inputfield_props, -1, input->width + padding, state.pos_ptr.values[0] + padding, true);
-            if(text_props.width < input->width - padding) {
-                input->cursor_index++;
-            } else {
-                remove_i_str(input->buf, input->cursor_index);
-            }
-        }
-    }
-    LfClickableItemState item = clickable_item(state.pos_ptr, (LfVec2i){input->width + padding * 2.0f, state.theme.font.font_size + padding * 2.0f}, state.theme.inputfield_props); 
-    if(item == LF_CLICKED && !input->selected) {
-        input->selected = true; 
-        input->cursor_index = strlen(input->buf);
-    } else if(item == LF_IDLE && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && input->selected) {
-        input->selected = false;
-    }
-    LfTextProps text_props_rendered = text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
-        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, input->buf, 
-                                                     state.theme.font, state.theme.inputfield_props, -1, input->width + padding, state.pos_ptr.values[0] + padding, false);
-        
-    if(input->selected) {
-        char cursor_slice[strlen(input->buf)];
-        for(uint32_t i = 0; i <= (uint32_t)input->cursor_index; i++) {
-            cursor_slice[i] = text_props_rendered.rendered_text[i];
-        }
-        cursor_slice[input->cursor_index] = '\0';
-        LfTextProps cursor_pos_props = text_render((LfVec2f){text_props_rendered.start_x, 
-            state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, cursor_slice, 
-                                                      state.theme.font, state.theme.inputfield_props, -1, input->width + padding, state.pos_ptr.values[0] + padding,true);
 
-        lf_rect((LfVec2f){(strlen(input->buf) != 0) ? cursor_pos_props.end_x : state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, 
-                (LfVec2i){1, state.theme.font.font_size}, state.theme.inputfield_props.text_color);
-    } else if(!input->selected && strlen(input->buf) == 0) {
-        text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
-        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, !input->placeholder ? "Type..." : input->placeholder, state.theme.font, state.theme.inputfield_props, -1, -1, -1, false); 
+int closes_num_in_arr(int arr[], int n, int target) {
+    int closest = 0;
+    int min_diff = INT_MAX;
+    for (int i = 0; i < n; i++) {
+        int diff = abs(arr[i] - target);
+        if (diff < min_diff) {
+            min_diff = diff;
+            closest = arr[i];
+        }
     }
-    
-    state.pos_ptr.values[0] += input->width + margin_right + padding * 2.0f;
-    state.pos_ptr.values[1] -= margin_top;
+    return closest;
+}
+void lf_input_text(LfInputField* input) {
+    input_field(input, INPUT_TEXT);
+}
+
+void lf_input_int(LfInputField *input) {
+    input_field(input, INPUT_INT);
+}
+void lf_input_float(LfInputField* input) {
+    input_field(input, INPUT_FLOAT);
 }

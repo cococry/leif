@@ -50,13 +50,14 @@ typedef struct {
     float width, height;
     uint32_t char_count;
     bool reached_stop;
-    char rendered_text[256];
     int32_t end_x, start_x;
 } LfTextProps;
 
 typedef struct {
     int32_t cursor_index, width;
     char* buf;
+    void* val;
+    int32_t char_positions[512];
     char* placeholder;
     bool selected;
 } LfInputField;
@@ -68,8 +69,9 @@ typedef enum {
 } LfClickableItemState;
 
 typedef struct {
-    LfVec4f color, hover_color, clicked_color, text_color;
+    LfVec4f color, hover_color, clicked_color, text_color, border_color;
     float padding, margin_left, margin_right, margin_top, margin_bottom;
+    float border_width;
 } LfUIElementProps;
 
 typedef struct {
@@ -87,7 +89,6 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size);
 
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
-void lf_rect(LfVec2f pos, LfVec2i size, LfVec4f color);
 
 LfFont lf_load_font(const char* filepath, uint32_t size);
 
@@ -145,6 +146,8 @@ void lf_next_line();
 
 LfVec2f lf_text_dimension(const char* str);
 
+float lf_get_tex_end(const char* str, float start_x);
+
 void lf_text(const char* fmt, ...);
 
 LfVec2i lf_get_div_size();
@@ -159,4 +162,8 @@ LfTheme* lf_theme();
 
 void lf_update();
 
-void lf_input(LfInputField* input);
+void lf_input_text(LfInputField* input);
+
+void lf_input_int(LfInputField* input);
+
+void lf_input_float(LfInputField* input);
