@@ -74,6 +74,9 @@ int main(int argc, char* argv[]) {
         if(lf_button_fixed("Generate\n Greeting", 150, 150) == LF_CLICKED) {
             generated = true;
         }
+        if(lf_button_fixed("Close App", 150, 150) == LF_CLICKED) {
+            glfwSetWindowShouldClose(window, true);
+        }
         if(submitted_age) {
             lf_next_line();
             lf_text("Submitted age: %i", age);
