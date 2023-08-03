@@ -70,15 +70,15 @@ typedef struct {
 } LfShader;
 
 typedef struct {
-    LfVec2f pos;
-    LfVec4f color;
-    LfVec2f texcoord;
-    float tex_index;
-} Vertex;
+    LfVec2f pos; // 8 Bytes
+    LfVec4f color; // 16 Bytes
+    LfVec2f texcoord; // 8 Bytes
+    float tex_index; // 4 Bytes
+} Vertex; // 36 Bytes per vertex
 
 typedef struct {
     LfVec2f pos;
-    LfVec2i size;    
+    LfVec2i size;
 } LfAABB;
 
 typedef struct {
@@ -95,13 +95,18 @@ typedef struct {
 typedef struct {
     bool buttons_current[MAX_MOUSE_BUTTONS];
     bool buttons_last[MAX_MOUSE_BUTTONS];
+
     double xpos, ypos, xpos_last, ypos_last, xpos_delta, ypos_delta;
     bool first_mouse_press; 
     double xscroll_delta, yscroll_delta;
 } LfMouse;
+
+// State of input 
 typedef struct {
     LfKeyboard keyboard;
     LfMouse mouse;
+
+    // List of callbacks (user defined)
     KEY_CALLBACK_t key_cbs[MAX_KEY_CALLBACKS];
     MOUSE_BUTTON_CALLBACK_t mouse_button_cbs[MAX_MOUSE_BTTUON_CALLBACKS];
     SCROLL_CALLBACK_t scroll_cbs[MAX_SCROLL_CALLBACKS];
@@ -110,6 +115,7 @@ typedef struct {
     uint32_t key_cb_count, mouse_button_cb_count, scroll_cb_count, cursor_pos_cb_count;
 } InputState;
 
+// State of the batch renderer
 typedef struct {
     LfShader shader;
     uint32_t vao, vbo;
@@ -120,6 +126,7 @@ typedef struct {
     uint32_t tex_index, tex_count;
 } RenderState;
 
+// --- Events ---
 typedef struct {
     int32_t keycode;
     bool happened, pressed;
@@ -151,6 +158,9 @@ typedef struct {
 
 typedef struct {
     bool init;
+    bool text_wrap;
+    
+    // Window
     uint32_t dsp_w, dsp_h;
     void* window_handle;
 
@@ -162,12 +172,13 @@ typedef struct {
     int32_t current_line_height;
     LfVec2f pos_ptr; 
 
-    bool text_wrap;
 
+    // Pushable variables
     LfVec4f item_color_stack;
     LfVec4f text_color_stack;
     LfFont* font_stack;
 
+    // Event references 
     KeyEvent key_ev;
     MouseButtonEvent mb_ev;
     CursorPosEvent cp_ev;
@@ -182,8 +193,8 @@ typedef enum {
     INPUT_TEXT
 } InputFieldType;
 
+// Static object to retrieve state data during runtime
 static LfState state;
-
 
 // --- Renderer ---
 static uint32_t                 shader_create(GLenum type, const char* src);
@@ -253,10 +264,12 @@ static void                     clear_events();
 
 // --- Static Functions --- 
 uint32_t shader_create(GLenum type, const char* src) {
+    // Create && compile the shader with opengl 
     uint32_t shader = glCreateShader(type);
     glShaderSource(shader, 1, &src, NULL);
     glCompileShader(shader);
 
+    // Check for compilation errors
     int32_t compiled; 
     glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
 
@@ -271,16 +284,18 @@ uint32_t shader_create(GLenum type, const char* src) {
 }
 
 LfShader shader_prg_create(char* vert_src, char* frag_src) {
+    // Creating vertex & fragment shader with the shader API
     uint32_t vertex_shader = shader_create(GL_VERTEX_SHADER, vert_src);
     uint32_t fragment_shader = shader_create(GL_FRAGMENT_SHADER, frag_src);
 
+    // Creating & linking the shader program with OpenGL
     LfShader prg;
-
     prg.id = glCreateProgram();
     glAttachShader(prg.id, vertex_shader);
     glAttachShader(prg.id, fragment_shader);
     glLinkProgram(prg.id);
 
+    // Check for linking errors
     int32_t linked;
     glGetProgramiv(prg.id, GL_LINK_STATUS, &linked);
 
@@ -295,6 +310,7 @@ LfShader shader_prg_create(char* vert_src, char* frag_src) {
         return prg;
     }
     
+    // Delete the shaders after
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);
     return prg;
@@ -303,10 +319,13 @@ LfShader shader_prg_create(char* vert_src, char* frag_src) {
 static LfState state;
 
 void renderer_init() {
+    // OpenGL Setup 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     state.render.vert_count = 0;
 
+    /* Creating vertex array & vertex buffer for the batch renderer */
     glCreateVertexArrays(1, &state.render.vao);
     glBindVertexArray(state.render.vao);
     
@@ -315,6 +334,7 @@ void renderer_init() {
     glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * MAX_VERT_COUNT_BATCH, NULL, 
         GL_DYNAMIC_DRAW);
     
+    // Setting the vertex layout
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), NULL);
     glEnableVertexAttribArray(0);
     
@@ -327,6 +347,7 @@ void renderer_init() {
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)(sizeof(float) * 8));
     glEnableVertexAttribArray(3);
 
+    // Creating the shader for the batch renderer
     char* vert_src = 
         "#version 460 core\n"
         "layout (location = 0) in vec2 a_pos;\n"
@@ -361,6 +382,7 @@ void renderer_init() {
 
     state.render.shader = shader_prg_create(vert_src, frag_src);
 
+    // initializing vertex position data
     state.render.vert_pos[0] = vec4f_create(-0.5f, -0.5f, 0.0f, 1.0f);
     state.render.vert_pos[1] = vec4f_create(-0.5f,  0.5f, 0.0f, 1.0f);
     state.render.vert_pos[2] = vec4f_create( 0.5f,  0.5f, 0.0f, 1.0f);
@@ -369,11 +391,13 @@ void renderer_init() {
     state.render.vert_pos[4] = vec4f_create(0.5f,  0.5f, 0.0f, 1.0f);
     state.render.vert_pos[5] = vec4f_create(0.5f,  -0.5f, 0.0f, 1.0f);
     
-
+    
+    // Setting projection matrix for the shader
     glUseProgram(state.render.shader.id);
     LfMat4 proj = orth_mat(0.0f, (float)state.dsp_w, (float)state.dsp_h, 0.0f);
     shader_set_mat(state.render.shader, "u_proj", proj);
 
+    // Populating the textures array in the shader with texture ids
     int32_t tex_slots[MAX_TEX_COUNT_BATCH];
     for(uint32_t i = 0; i < MAX_TEX_COUNT_BATCH; i++) 
         tex_slots[i] = i;
@@ -385,6 +409,7 @@ void shader_set_mat(LfShader prg, const char* name, LfMat4 mat) {
 }
 
 LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filter) {
+    // Loading the texture into memory with stb_image
     LfTexture tex;
     int32_t width, height, channels;
     stbi_set_flip_vertically_on_load(flip);
@@ -398,11 +423,12 @@ LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filt
     GLenum data_format = (channels == 4) ? GL_RGBA : GL_RGB;
     
     LF_ASSERT(internal_format & data_format, "Texture file at '%s' is using an unsupported format.", filepath);
-void lf_terminate();
-
+    
+    // Creating the textures in opengl with the loaded data
     glCreateTextures(GL_TEXTURE_2D, 1, &tex.id);
     glTextureStorage2D(tex.id, 1, internal_format, width, height);
     
+    // Setting texture parameters
     switch(filter) {
         case LF_TEX_FILTER_LINEAR:
             glTextureParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -417,6 +443,7 @@ void lf_terminate();
     glTextureParameteri(tex.id, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTextureSubImage2D(tex.id, 0, 0, 0, width, height, data_format, GL_UNSIGNED_BYTE, data);
     
+    // Deallocating the data when finished
     stbi_image_free(data);
 
     tex.width = width;
@@ -427,11 +454,13 @@ void lf_terminate();
 
 LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add) {
     LfFont font = {0};
+    /* Opening the file, reading the content to a buffer and parsing the loaded data with stb_truetype */
     FILE* file = fopen(filepath, "rb");
     if (file == NULL) {
         LF_ERROR("Failed to open font file '%s'\n", filepath);
     }
 
+    // Loading the content
     fseek(file, 0, SEEK_END);
     long fileSize = ftell(file);
     fseek(file, 0, SEEK_SET);
@@ -439,8 +468,11 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
     fread(buffer, 1, fileSize, file);
     fclose(file); 
     font.font_info = malloc(sizeof(stbtt_fontinfo));
+
+    // Initializing the font with stb_truetype
     stbtt_InitFont((stbtt_fontinfo*)font.font_info, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
     
+    // Loading the font bitmap to memory by using stbtt_BakeFontBitmap
     uint8_t buf[1<<20];
     uint8_t* bitmap = malloc(tex_width * tex_height * sizeof(uint32_t));
     uint8_t* bitmap_4bpp = malloc(tex_width * tex_height * 4 * sizeof(uint32_t));
@@ -460,6 +492,7 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
         }
     }
 
+    // Creating an opengl texture (texture atlas) for the font
     glGenTextures(1, &font.bitmap.id);
     glBindTexture(GL_TEXTURE_2D, font.bitmap.id);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -469,20 +502,20 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tex_width, tex_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bitmap_4bpp);
     glGenerateMipmap(GL_TEXTURE_2D);
 
+    // Deallocating the bitmap data 
     free(bitmap);
     free(bitmap_4bpp);
     return font;
 }
 
 LfFont lf_load_font(const char* filepath, uint32_t size) {
-    return load_font(filepath, size, 1024, 1024, 256, 5);
+    return load_font(filepath, size, 1024, 1024, 256, 0);
 }
 
 void lf_free_font(LfFont* font) {
     free(font->cdata);
     free(font->font_info);
 }
-
 LfMat4 mat_identity() {
     LfMat4 mat;
     mat.values[0] = 1;
@@ -696,17 +729,20 @@ bool aabb_intersects_aabb(LfAABB a, LfAABB b) {
 }
 LfClickableItemState clickable_item(LfVec2f pos, LfVec2i size, LfUIElementProps props, LfVec4f color, bool click_color, bool hover_color) {
     if(!state.current_div.init) {
-        LF_ERROR("Trying to render clickable item without div context. Call lf_div_begin()");
+        LF_ERROR("Trying to render without div context. Call lf_div_begin()");
         return(LfClickableItemState){0};
     }
+    /* Rendering a rect with the given proportions with different color based on if it is hoverd, clicked or idle */
     bool is_hovered = hovered(pos, size);
     rect_render((LfVec2f){pos.values[0] - props.border_width, pos.values[1] - props.border_width}, 
                 (LfVec2i){size.values[0] + props.border_width * 2.0f, size.values[1] + props.border_width * 2.0f}, 
                 props.border_color);
     if(is_hovered && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT)) {
         if(click_color) {
+            // Click color is 40 lighter than the base color for every value
             LfVec4f click_color = (LfVec4f){LF_RGBA(color.values[0] + 40, color.values[1] + 40,
                                                 color.values[2] + 40, color.values[3] + 40)};
+            // Clamping the color
             if(click_color.values[0] > 1.0)
                 click_color.values[0] = 1.0;
             if(click_color.values[1] > 1.0)
@@ -723,8 +759,10 @@ LfClickableItemState clickable_item(LfVec2f pos, LfVec2i size, LfUIElementProps 
     }
     if(is_hovered && (!lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && !lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT))) {
         if(hover_color) {
+            // Hover color is 20 darker than the base color for every value
             LfVec4f hover_color = (LfVec4f){LF_RGBA(color.values[0] - 20, color.values[1] - 20,
                                                     color.values[2] - 20, color.values[3] - 20)};
+            // Clamping the color
             if(hover_color.values[0] > 1.0)
                 hover_color.values[0] = 1.0;
             if(hover_color.values[1] > 1.0)
@@ -739,6 +777,7 @@ LfClickableItemState clickable_item(LfVec2f pos, LfVec2i size, LfUIElementProps 
         }
         return LF_HOVERED;
     }
+    // Rendering with base color if idle
     rect_render(pos, size, color);
     return LF_IDLE;
 }
@@ -748,6 +787,7 @@ void glfw_key_callback(GLFWwindow* window, int32_t key, int scancode, int action
     (void)window;
     (void)mods;
     (void)scancode;
+    // Changing the the keys array to resamble the state of the keyboard 
     if(action != GLFW_RELEASE) {
         if(!state.input.keyboard.keys[key]) 
             state.input.keyboard.keys[key] = true;
@@ -755,9 +795,13 @@ void glfw_key_callback(GLFWwindow* window, int32_t key, int scancode, int action
         state.input.keyboard.keys[key] = false;
     }
     state.input.keyboard.keys_changed[key] = (action != GLFW_REPEAT);
+
+    // Calling user defined callbacks
     for(uint32_t i = 0; i < state.input.key_cb_count; i++) {
         state.input.key_cbs[i](window, key, scancode, action, mods);
     }
+
+    // Populating the key event
     state.key_ev.happened = true;
     state.key_ev.pressed = action != GLFW_RELEASE;
     state.key_ev.keycode = key;
@@ -765,32 +809,40 @@ void glfw_key_callback(GLFWwindow* window, int32_t key, int scancode, int action
 void glfw_mouse_button_callback(GLFWwindow* window, int32_t button, int action, int mods) {
     (void)window;
     (void)mods;
+    // Changing the buttons array to resamble the state of the mouse
     if(action != GLFW_RELEASE)  {
         if(!state.input.mouse.buttons_current[button])
             state.input.mouse.buttons_current[button] = true;
     } else {
         state.input.mouse.buttons_current[button] = false;
     }
+    // Calling user defined callbacks
     for(uint32_t i = 0; i < state.input.mouse_button_cb_count; i++) {
         state.input.mouse_button_cbs[i](window, button, action, mods);
     }
+    // Populating the mouse button event
     state.mb_ev.happened = true;
     state.mb_ev.pressed = action != GLFW_RELEASE;
     state.mb_ev.button_code = button;
 }
 void glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     (void)window;
+    // Setting the scroll values
     state.input.mouse.xscroll_delta = xoffset;
     state.input.mouse.yscroll_delta = yoffset;
+
+    // Calling user defined callbacks
     for(uint32_t i = 0; i< state.input.scroll_cb_count; i++) {
         state.input.scroll_cbs[i](window, xoffset, yoffset);
     }
+    // Populating the scroll event
     state.scr_ev.happened = true;
     state.scr_ev.xoffset = xoffset;
     state.scr_ev.yoffset = yoffset;
 }
 void glfw_cursor_callback(GLFWwindow* window, double xpos, double ypos) {
     (void)window;
+    // Setting the position values 
     state.input.mouse.xpos = xpos;
     state.input.mouse.ypos = ypos;
 
@@ -799,13 +851,18 @@ void glfw_cursor_callback(GLFWwindow* window, double xpos, double ypos) {
         state.input.mouse.ypos_last = ypos;
         state.input.mouse.first_mouse_press = false;
     }
+    // Delta mouse positions 
     state.input.mouse.xpos_delta = state.input.mouse.xpos - state.input.mouse.xpos_last;
     state.input.mouse.ypos_delta = state.input.mouse.ypos - state.input.mouse.ypos_last;
     state.input.mouse.xpos_last = xpos;
     state.input.mouse.ypos_last = ypos;
+
+    // Calling User defined callbacks
     for(uint32_t i = 0; i< state.input.cursor_pos_cb_count; i++) {
         state.input.cursor_pos_cbs[i](window, xpos, ypos);
     }
+
+    // Populating the cursor event
     state.cp_ev.happened = true;
     state.cp_ev.x = xpos;
     state.cp_ev.y = ypos;
@@ -817,8 +874,452 @@ void glfw_char_callback(GLFWwindow* window, uint32_t charcode) {
 }
 #endif
 
-// --- Public API Functions ---
-//
+void rect_render(LfVec2f pos, LfVec2i size, LfVec4f color) {
+    // Offsetting the postion, so that pos is the top left of the rendered object
+    pos = (LfVec2f){pos.values[0] + size.values[0] / 2.0f, pos.values[1] + size.values[1] / 2.0f};
+
+    // Initializing texture coords data
+    LfVec2f texcoords[6] = {
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){0.0f, 1.0f},
+        (LfVec2f){1.0f, 1.0f},
+
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){1.0f, 1.0f},
+        (LfVec2f){1.0f, 0.0f},
+    };
+    // Calculating the transform matrix
+    LfMat4 transform = mat_mul(
+        scale_mat(mat_identity(), vec3f_create(size.values[0], size.values[1], 0.0f)),
+        translate_mat(mat_identity(), vec3f_create((float)pos.values[0], (float)pos.values[1], 0.0f))
+    );
+    // Adding the vertices to the batch renderer
+    for(uint32_t i = 0; i < 6; i++) {
+        LfVec4f pos_mat = vec4_mul_mat(state.render.vert_pos[i], transform);
+        state.render.verts[state.render.vert_count].pos = vec2f_create(pos_mat.values[0], 
+            pos_mat.values[1]);
+        state.render.verts[state.render.vert_count].color = color;
+        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
+        state.render.verts[state.render.vert_count].tex_index = -1.0f;
+        state.render.vert_count++;
+    } 
+}
+
+void image_render(LfVec2f pos, LfVec4f color, LfTexture tex) {
+    // Offsetting the postion, so that pos is the top left of the rendered object
+    pos = (LfVec2f){pos.values[0] + tex.width / 2.0f, pos.values[1] + tex.height / 2.0f};
+
+    // Initializing texture coords data
+    LfVec2f texcoords[6] = {
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){0.0f, 1.0f},
+        (LfVec2f){1.0f, 1.0f},
+
+        (LfVec2f){0.0f, 0.0f},
+        (LfVec2f){1.0f, 1.0f},
+        (LfVec2f){1.0f, 0.0f},
+    };
+
+    // Retrieving the texture index of the rendered texture
+    float tex_index = -1.0f;
+    for(uint32_t i = 0; i < state.render.tex_count; i++) {
+        if(tex.id == state.render.textures[i].id)  {
+            tex_index = i;
+            break;
+        }
+    }
+    if(tex_index == -1.0f) {
+        tex_index = (float)state.render.tex_index;
+        state.render.textures[state.render.tex_count++] = tex;
+        state.render.tex_index++;
+    }
+    // Calculating the transform
+    LfMat4 transform = mat_mul(
+        scale_mat(mat_identity(), vec3f_create(tex.width, tex.height, 0.0f)),
+        translate_mat(mat_identity(), vec3f_create((float)pos.values[0], (float)pos.values[1], 0.0f))
+    );
+
+    // Adding the vertices to the batch renderer
+    for(uint32_t i = 0; i < 6; i++) {
+        LfVec4f pos_mat = vec4_mul_mat(state.render.vert_pos[i], transform);
+        state.render.verts[state.render.vert_count].pos = vec2f_create(pos_mat.values[0], 
+            pos_mat.values[1]);
+        state.render.verts[state.render.vert_count].color = color;
+        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
+        state.render.verts[state.render.vert_count].tex_index = tex_index;
+        state.render.vert_count++;
+    } 
+}
+void input_field(LfInputField* input, InputFieldType type) {
+    if(!input->buf) return;
+    // Getting the property data of the input field
+    float padding = state.theme.inputfield_props.padding;
+    float margin_left = state.theme.inputfield_props.margin_left;
+    float margin_right = state.theme.inputfield_props.margin_right;
+    float margin_top = state.theme.inputfield_props.margin_top;
+    float margin_bottom = state.theme.inputfield_props.margin_bottom;
+    float border_width = state.theme.inputfield_props.border_width;
+
+    LfVec4f color = state.item_color_stack.values[3] != -1 ? state.item_color_stack : state.theme.inputfield_props.color;
+    LfVec4f text_color = state.text_color_stack.values[3] != -1 ? state.text_color_stack : state.theme.inputfield_props.text_color;
+    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+
+    // If the object cannot be fully rendered on the current line, advance one line down
+    next_line_on_overflow(
+        (LfVec2f){input->width + padding * 2.0f + margin_left + margin_right + border_width * 2.0f, 
+                  state.theme.font.font_size + padding * 2 + margin_top + margin_bottom + border_width * 2.0f} 
+    );
+    // Adding the margins to the position pointer
+    state.pos_ptr.values[0] += margin_left + border_width;
+    state.pos_ptr.values[1] += margin_top + border_width;
+    if(input->selected) {
+        // Handeling key input of the inputfiled
+        if(lf_key_went_down(GLFW_KEY_BACKSPACE)) {
+            if(input->cursor_index - 1 >= 0) {
+                remove_i_str(input->buf, input->cursor_index - 1);
+                input->cursor_index--;
+            }
+        }  
+        if(lf_key_went_down(GLFW_KEY_RIGHT)) {
+            if(input->cursor_index <= (int32_t)strlen(input->buf) - 1) {
+                input->cursor_index++;
+            }
+        }
+        if(lf_key_went_down(GLFW_KEY_LEFT)) {
+            if(input->cursor_index - 1 >= 0)
+                input->cursor_index--;
+        }
+        if(state.ch_ev.happened) {
+            switch(type) {
+                case INPUT_FLOAT: {
+                    char* end_ptr;
+                    double val;
+                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
+                    val = strtod(input->buf,&end_ptr);
+                    if(*end_ptr == '\0') {
+                        input->cursor_index++;
+                    } else {
+                        remove_i_str(input->buf, input->cursor_index);
+                    }
+                    break;
+                }
+                case INPUT_INT: {        
+                    if(isdigit(state.ch_ev.charcode)) {
+                        insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
+                        input->cursor_index++;
+                    }
+                    break;
+                }
+                case INPUT_TEXT: {
+                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
+                    input->cursor_index++;
+                    break;
+                }   
+            }
+        }
+    }
+
+    // Rendering the input field
+    LfClickableItemState item = clickable_item(state.pos_ptr, 
+                                               (LfVec2i){input->width + padding * 2.0f,
+                                                state.theme.font.font_size + padding * 2.0f},
+                                                state.theme.inputfield_props, color, false,false); 
+
+    // Handeling selecting the input field
+    if(item == LF_CLICKED && !input->selected) {
+        input->selected = true; 
+        input->cursor_index = strlen(input->buf);
+    }  else if(item == LF_IDLE && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && input->selected) {
+        input->selected = false;
+    }
+
+    // Rendering the text in the input field
+    LfTextProps text_props_rendered = text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
+        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, input->buf, 
+                                                     font, -1, input->width + padding, state.pos_ptr.values[0] + padding, false, text_color);
+        
+    // Handleing the cursor indicator
+    if(input->selected) {
+        // Getting the part of the text that is before the cursor 
+        char cursor_slice[strlen(input->buf)];
+        for(uint32_t i = 0; i <= (uint32_t)input->cursor_index; i++) {
+            cursor_slice[i] = input->buf[i];
+        }
+        cursor_slice[input->cursor_index] = '\0';
+
+        LfTextProps cursor_pos_props = text_render((LfVec2f){text_props_rendered.start_x, 
+            state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, cursor_slice, 
+                                                      font, -1, input->width + padding, state.pos_ptr.values[0] + padding, true, text_color);
+
+        // Recalculating the positions of the characters when a character was added or the gui reestablished
+        if(state.ch_ev.happened || state.gui_re_ev.happened) {
+            char text_buf[strlen(input->buf)];
+            memset(text_buf, 0, sizeof(text_buf));
+            for(uint32_t i = 0; i < strlen(input->buf); i++) {
+                input->char_positions[i] = lf_get_text_end(text_buf, state.pos_ptr.values[0] + padding);
+                int32_t len = strlen(text_buf);
+                text_buf[len] = input->buf[i];
+                text_buf[len + 1] = '\0';
+            }
+        }
+        // Rendering the cursor indicator
+        rect_render((LfVec2f){(strlen(input->buf) != 0) ? cursor_pos_props.end_x : state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, 
+                (LfVec2i){1, state.theme.font.font_size}, state.theme.inputfield_props.text_color);
+    } else if(!input->selected && strlen(input->buf) == 0) {
+        // Rendering the placeholder
+        text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
+        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, 
+                    !input->placeholder ? "Type..." : input->placeholder, font, -1, -1, -1, false, text_color); 
+    }
+    if(item == LF_CLICKED) {
+        if(lf_get_mouse_x() > input->char_positions[strlen(input->buf) - 1]) {
+            input->cursor_index = strlen(input->buf);
+        } else {
+            // Getting the closest character to the mouse and setting the cursor index to it 
+            int32_t val = closes_num_in_arr(input->char_positions, strlen(input->buf) + 1, lf_get_mouse_x());
+            for(uint32_t i = 0; i < strlen(input->buf) + 1; i++) {
+                if(input->char_positions[i] == val) {
+                    input->cursor_index = i;
+                    break;
+                }
+            }
+        }
+    } 
+    // Advancing the position pointer by the size of the inputf ield
+    state.pos_ptr.values[0] += input->width + margin_right + padding * 2.0f + border_width;
+    state.pos_ptr.values[1] -= margin_top + border_width;
+
+    // Setting the value pointer 
+    if(type == INPUT_FLOAT)
+        *(float*)input->val = atof(input->buf);
+    else if(type == INPUT_INT)
+        *(int32_t*)input->val = atoi(input->buf);
+}
+
+
+float get_kerning(int32_t prev_character_codepoint, int current_character_codepoint) {
+    float scale = stbtt_ScaleForPixelHeight(state.theme.font.font_info, state.theme.font.font_size);
+    int32_t kern_advance = stbtt_GetCodepointKernAdvance(state.theme.font.font_info, prev_character_codepoint, current_character_codepoint);
+    float kerning = kern_advance * scale;
+    return kerning;
+}
+static int32_t get_max_char_height_font(LfFont font) {
+    float fontScale = stbtt_ScaleForPixelHeight(font.font_info, font.font_size);
+    int32_t xmin, ymin, xmax, ymax;
+    int32_t codepoint = 'y';
+    stbtt_GetCodepointBitmapBox(font.font_info, codepoint, fontScale, fontScale, &xmin, &ymin, &xmax, &ymax);
+    return ymax - ymin;
+}
+
+void remove_i_str(char *str, int32_t index) {
+    int32_t len = strlen(str);
+    if (index >= 0 && index < len) {
+        for (int32_t i = index; i < len - 1; i++) {
+            str[i] = str[i + 1];
+        }
+        str[len - 1] = '\0';
+    }
+}
+void insert_i_str(char *str, char ch, int32_t index) {
+    int32_t len = strlen(str);
+    if (index >= 0 && index <= len) {
+        for (int32_t i = len; i >= index; i--) {
+            str[i + 1] = str[i];
+        }
+        str[index] = ch;
+    }
+}
+
+bool hovered(LfVec2f pos, LfVec2i size) {
+    bool hovered = lf_get_mouse_x() <= (pos.values[0] + size.values[0]) && lf_get_mouse_x() >= (pos.values[0]) && 
+        lf_get_mouse_y() <= (pos.values[1] + size.values[1]) && lf_get_mouse_y() >= (pos.values[1]);
+    return hovered;
+}
+
+void next_line_on_overflow(LfVec2f size) {
+    // If the object does not fit in the area of the current div, advance to the next line
+    if(state.pos_ptr.values[0] - state.current_div.aabb.pos.values[0] + size.values[0] >= state.current_div.aabb.size.values[0]) {
+        lf_next_line();
+    }
+    if(size.values[1] > state.current_line_height) {
+        state.current_line_height = size.values[1];
+    }
+}
+
+int32_t closes_num_in_arr(int arr[], int n, int target) {
+    int32_t closest = 0;
+    int32_t min_diff = INT_MAX;
+    for (int32_t i = 0; i < n; i++) {
+        int32_t diff = abs(arr[i] - target);
+        if (diff < min_diff) {
+            min_diff = diff;
+            closest = arr[i];
+        }
+    }
+    return closest;
+}
+LfTextProps text_render(LfVec2f pos, const char* str, LfFont font, int32_t wrap_point, int32_t stop_point, int32_t start_point, bool no_render, 
+                        LfVec4f color) {
+    // Retrieving the texture index
+    float tex_index = -1.0f;
+    if(!no_render) {
+        for(uint32_t i = 0; i < state.render.tex_count; i++) {
+            if(state.render.textures[i].id == font.bitmap.id) {
+                tex_index = (float)i;
+                break;
+            }
+        }
+        if(tex_index == -1.0f) {
+            tex_index = (float)state.render.tex_index;
+            LfTexture tex = font.bitmap;
+            state.render.textures[state.render.tex_count++] = tex;
+            state.render.tex_index++;
+        }
+    }
+    // Local variables needed for rendering
+    LfTextProps ret = {0};
+    float x = pos.values[0];
+    float y = pos.values[1];
+    int32_t max_descended_char_height = get_max_char_height_font(font);
+
+    bool reached_stop = false;
+    bool new_line = false;
+
+    float last_x = x;
+    float last_char_width = 0, first_char_width = -1;
+    int32_t first_char_index = 0;
+    int32_t i = 0;
+
+    int32_t height = get_max_char_height_font(font);
+    float width = 0;
+    int32_t char_count = 0;
+
+    while(*str) { 
+        bool skip = false;
+        // If the current character is a new line or the wrap point has been reached, advance to the next line
+        if(*str == '\n' || (x >= wrap_point && wrap_point != -1)) {
+            y += font.font_size;
+            height += font.font_size;
+            if(x - pos.values[0] > width) {
+                width = x - pos.values[0];
+            }
+            x = pos.values[0];
+            last_x = x;
+            if(*str == '\n' || *str == ' ') {
+                skip = true; 
+            }
+            new_line = true;
+        }
+        if(!skip) {
+            // Retrieving the vertex data of the current character & submitting it to the batch 
+            stbtt_aligned_quad q;
+            stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
+
+            // Return if reached stop
+            if(x - pos.values[0] > stop_point && stop_point != -1) {
+                reached_stop = true;
+                if(x - pos.values[0] > width) {
+                    width = x - pos.values[0];
+                }
+                ret.width = width; 
+                ret.height = height;
+                ret.char_count = i - first_char_index; 
+                ret.reached_stop = reached_stop;
+                ret.end_x = x;
+                return ret;
+            }
+            if((start_point != -1 && x >= start_point) || start_point == -1)  {
+                if(first_char_width == -1) { 
+                    first_char_width = x - last_x;
+                    first_char_index = i; 
+                    ret.start_x = q.x0;
+                }
+                // Adding the vertices to the batch if rendering the text
+                if(!no_render) {
+                    LfVec2f texcoords[6] = {
+                        q.s0, q.t0, 
+                        q.s0, q.t1, 
+                        q.s1, q.t1, 
+
+                        q.s0, q.t0, 
+                        q.s1, q.t1, 
+                        q.s1, q.t0
+                    };
+                    for(uint32_t i = 0; i < 6; i++) {
+                        LfVec2f verts[6] = {
+                            (LfVec2f){q.x0, q.y0 + max_descended_char_height}, 
+                            (LfVec2f){q.x0, q.y1 + max_descended_char_height}, 
+                            (LfVec2f){q.x1, q.y1 + max_descended_char_height},
+
+                            (LfVec2f){q.x0, q.y0 + max_descended_char_height},
+                            (LfVec2f){q.x1, q.y1 + max_descended_char_height}, 
+                            (LfVec2f){q.x1, q.y0 + max_descended_char_height}
+                        }; 
+                        state.render.verts[state.render.vert_count].pos = verts[i]; 
+                        state.render.verts[state.render.vert_count].color = color;
+                        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
+                        state.render.verts[state.render.vert_count].tex_index = tex_index;
+                        state.render.vert_count++;
+                    }
+                }
+                char_count++;
+                last_char_width = x - last_x;
+                last_x = x;
+            }
+        }
+        str++;
+        i++;
+    }
+
+    // Populating the return value
+    if(x - pos.values[0] > width) {
+        width = x - pos.values[0];
+    }
+    ret.width = width;
+    ret.height = height;
+    ret.char_count = i - first_char_index; 
+    ret.reached_stop = (x > stop_point);
+    ret.end_x = x;
+    return ret;
+}
+
+void flush() {
+    if(state.render.vert_count <= 0) return;
+
+    // Bind the vertex buffer & shader set the vertex data, bind the textures & draw
+    glUseProgram(state.render.shader.id);
+    glBindBuffer(GL_ARRAY_BUFFER, state.render.vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * state.render.vert_count, 
+                    state.render.verts);
+
+    for(uint32_t i = 0; i < MAX_TEX_COUNT_BATCH; i++) {
+        glBindTextureUnit(i, state.render.textures[i].id);
+    }
+
+    glBindVertexArray(state.render.vao);
+    glDrawArrays(GL_TRIANGLES, 0, state.render.vert_count);
+
+    state.render.vert_count = 0;
+    state.render.tex_index = 0;
+}
+
+void update_input() {
+    memcpy(state.input.mouse.buttons_last, state.input.mouse.buttons_current, sizeof(bool) * MAX_MOUSE_BUTTONS);
+}
+
+void clear_events() {
+    state.key_ev.happened = false;
+    state.mb_ev.happened = false;
+    state.cp_ev.happened = false;
+    state.scr_ev.happened = false;
+    state.ch_ev.happened = false;
+    state.gui_re_ev.happened = false;
+}
+
+
+// ------------------------------------
+// ------- Public API Functions -------
+// ------------------------------------
 void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* font_path, LfTheme* theme, void* glfw_window) {
 #ifndef LF_GLFW
     LF_ERROR("Trying to initialize Leif with GLFW without defining 'LF_GLFW'");
@@ -829,6 +1330,8 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* f
         return;
     }
     memset(&state, 0, sizeof(state));
+
+    // Default state
     state.init = true;
     state.dsp_w = display_width;
     state.dsp_h = display_height;
@@ -845,6 +1348,8 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* f
     } else {
         state.theme = lf_default_theme(font_path, 24);
     }
+
+    // Setting glfw callbacks
     glfwSetKeyCallback(state.window_handle, glfw_key_callback);
     glfwSetMouseButtonCallback(state.window_handle, glfw_mouse_button_callback);
     glfwSetScrollCallback(state.window_handle, glfw_scroll_callback);
@@ -858,6 +1363,7 @@ void lf_terminate() {
     lf_free_font(&state.theme.font);
 }
 LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
+    // The default theme of Leif
     LfTheme theme = {0};
     theme.div_props = (LfUIElementProps){
         .color = (LfVec4f){LF_RGBA(45, 45, 45, 255)}, 
@@ -905,349 +1411,16 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
     return theme;
 }
 
-// --- Public API Functions ---
 void lf_resize_display(uint32_t display_width, uint32_t display_height) {
+    // Setting the display height internally
     state.dsp_w = display_width;
     state.dsp_h = display_height;
+
+    // Recalculating the projection matrix
     LfMat4 proj = orth_mat(0.0f, (float)state.dsp_w, (float)state.dsp_h, 0.0f);
     state.current_div.aabb.size.values[0] = state.dsp_w;
     state.current_div.aabb.size.values[1] = state.dsp_h;
     shader_set_mat(state.render.shader, "u_proj", proj);
-}
-
-
-void rect_render(LfVec2f pos, LfVec2i size, LfVec4f color) {
-    pos = (LfVec2f){pos.values[0] + size.values[0] / 2.0f, pos.values[1] + size.values[1] / 2.0f};
-
-    LfVec2f texcoords[6] = {
-        (LfVec2f){0.0f, 0.0f},
-        (LfVec2f){0.0f, 1.0f},
-        (LfVec2f){1.0f, 1.0f},
-
-        (LfVec2f){0.0f, 0.0f},
-        (LfVec2f){1.0f, 1.0f},
-        (LfVec2f){1.0f, 0.0f},
-    };
-    LfMat4 transform = mat_mul(
-        scale_mat(mat_identity(), vec3f_create(size.values[0], size.values[1], 0.0f)),
-        translate_mat(mat_identity(), vec3f_create((float)pos.values[0], (float)pos.values[1], 0.0f))
-    );
-    for(uint32_t i = 0; i < 6; i++) {
-        LfVec4f pos_mat = vec4_mul_mat(state.render.vert_pos[i], transform);
-        state.render.verts[state.render.vert_count].pos = vec2f_create(pos_mat.values[0], 
-            pos_mat.values[1]);
-        state.render.verts[state.render.vert_count].color = color;
-        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
-        state.render.verts[state.render.vert_count].tex_index = -1.0f;
-        state.render.vert_count++;
-    } 
-}
-
-void image_render(LfVec2f pos, LfVec4f color, LfTexture tex) {
-    pos = (LfVec2f){pos.values[0] + tex.width / 2.0f, pos.values[1] + tex.height / 2.0f};
-    LfVec2f texcoords[6] = {
-        (LfVec2f){0.0f, 0.0f},
-        (LfVec2f){0.0f, 1.0f},
-        (LfVec2f){1.0f, 1.0f},
-
-        (LfVec2f){0.0f, 0.0f},
-        (LfVec2f){1.0f, 1.0f},
-        (LfVec2f){1.0f, 0.0f},
-    };
-    float tex_index = -1.0f;
-    for(uint32_t i = 0; i < state.render.tex_count; i++) {
-        if(tex.id == state.render.textures[i].id)  {
-            tex_index = i;
-            break;
-        }
-    }
-    if(tex_index == -1.0f) {
-        tex_index = (float)state.render.tex_index;
-        state.render.textures[state.render.tex_count++] = tex;
-        state.render.tex_index++;
-    }
-    LfMat4 transform = mat_mul(
-        scale_mat(mat_identity(), vec3f_create(tex.width, tex.height, 0.0f)),
-        translate_mat(mat_identity(), vec3f_create((float)pos.values[0], (float)pos.values[1], 0.0f))
-    );
-    for(uint32_t i = 0; i < 6; i++) {
-        LfVec4f pos_mat = vec4_mul_mat(state.render.vert_pos[i], transform);
-        state.render.verts[state.render.vert_count].pos = vec2f_create(pos_mat.values[0], 
-            pos_mat.values[1]);
-        state.render.verts[state.render.vert_count].color = color;
-        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
-        state.render.verts[state.render.vert_count].tex_index = tex_index;
-        state.render.vert_count++;
-    } 
-}
-void input_field(LfInputField* input, InputFieldType type) {
-    if(!input->buf) return;
-    float padding = state.theme.inputfield_props.padding;
-    float margin_left = state.theme.inputfield_props.margin_left;
-    float margin_right = state.theme.inputfield_props.margin_right;
-    float margin_top = state.theme.inputfield_props.margin_top;
-    float margin_bottom = state.theme.inputfield_props.margin_bottom;
-    float border_width = state.theme.inputfield_props.border_width;
-
-    LfVec4f color = state.item_color_stack.values[3] != -1 ? state.item_color_stack : state.theme.inputfield_props.color;
-    LfVec4f text_color = state.text_color_stack.values[3] != -1 ? state.text_color_stack : state.theme.inputfield_props.text_color;
-    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
-
-    int32_t cursor_index_pre = input->cursor_index;
-    next_line_on_overflow(
-        (LfVec2f){input->width + padding * 2.0f + margin_left + margin_right + border_width * 2.0f, 
-                  state.theme.font.font_size + padding * 2 + margin_top + margin_bottom + border_width * 2.0f} 
-    );
-    state.pos_ptr.values[0] += margin_left + border_width;
-    state.pos_ptr.values[1] += margin_top + border_width;
-    if(input->selected) {
-        if(lf_key_went_down(GLFW_KEY_BACKSPACE)) {
-            if(input->cursor_index - 1 >= 0) {
-                remove_i_str(input->buf, input->cursor_index - 1);
-                input->cursor_index--;
-            }
-        }  
-        if(lf_key_went_down(GLFW_KEY_RIGHT)) {
-            if(input->cursor_index <= (int32_t)strlen(input->buf) - 1) {
-                input->cursor_index++;
-            }
-        }
-        if(lf_key_went_down(GLFW_KEY_LEFT)) {
-            if(input->cursor_index - 1 >= 0)
-                input->cursor_index--;
-        }
-        if(state.ch_ev.happened) {
-            switch(type) {
-                case INPUT_FLOAT: {
-                    char* end_ptr;
-                    double val;
-                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
-                    val = strtod(input->buf,&end_ptr);
-                    if(*end_ptr == '\0') {
-                        input->cursor_index++;
-                    } else {
-                        remove_i_str(input->buf, input->cursor_index);
-                    }
-                    break;
-                }
-                case INPUT_INT: {        
-                    if(isdigit(state.ch_ev.charcode)) {
-                        insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
-                        input->cursor_index++;
-                    }
-                    break;
-                }
-                case INPUT_TEXT: {
-                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
-                    input->cursor_index++;
-                    break;
-                }   
-            }
-        }
-    }
-
-    LfClickableItemState item = clickable_item(state.pos_ptr, 
-                                               (LfVec2i){input->width + padding * 2.0f,
-                                                state.theme.font.font_size + padding * 2.0f},
-                                                state.theme.inputfield_props, color, false,false); 
-    if(item == LF_CLICKED && !input->selected) {
-        input->selected = true; 
-        input->cursor_index = strlen(input->buf);
-    }  else if(item == LF_IDLE && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && input->selected) {
-        input->selected = false;
-    }
-    LfTextProps text_props_rendered = text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
-        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, input->buf, 
-                                                     font, -1, input->width + padding, state.pos_ptr.values[0] + padding, false, text_color);
-        
-    if(input->selected) {
-        char cursor_slice[strlen(input->buf)];
-        for(uint32_t i = 0; i <= (uint32_t)input->cursor_index; i++) {
-            cursor_slice[i] = input->buf[i];
-        }
-        cursor_slice[input->cursor_index] = '\0';
-        LfTextProps cursor_pos_props = text_render((LfVec2f){text_props_rendered.start_x, 
-            state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, cursor_slice, 
-                                                      font, -1, input->width + padding, state.pos_ptr.values[0] + padding, true, text_color);
-
-        if(state.ch_ev.happened || state.gui_re_ev.happened) {
-            char text_buf[strlen(input->buf)];
-            memset(text_buf, 0, sizeof(text_buf));
-            for(uint32_t i = 0; i < strlen(input->buf); i++) {
-                input->char_positions[i] = lf_get_text_end(text_buf, state.pos_ptr.values[0] + padding);
-                int32_t len = strlen(text_buf);
-                text_buf[len] = input->buf[i];
-                text_buf[len + 1] = '\0';
-            }
-        }
-        rect_render((LfVec2f){(strlen(input->buf) != 0) ? cursor_pos_props.end_x : state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, 
-                (LfVec2i){1, state.theme.font.font_size}, state.theme.inputfield_props.text_color);
-    } else if(!input->selected && strlen(input->buf) == 0) {
-        text_render((LfVec2f){(state.pos_ptr.values[0] + padding),
-        state.pos_ptr.values[1] + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, 
-                    !input->placeholder ? "Type..." : input->placeholder, font, -1, -1, -1, false, text_color); 
-    }
-    if(item == LF_CLICKED) {
-        if(lf_get_mouse_x() > input->char_positions[strlen(input->buf) - 1]) {
-            input->cursor_index = strlen(input->buf);
-        } else {
-            int32_t val = closes_num_in_arr(input->char_positions, strlen(input->buf) + 1, lf_get_mouse_x());
-            for(uint32_t i = 0; i < strlen(input->buf) + 1; i++) {
-                if(input->char_positions[i] == val) {
-                    input->cursor_index = i;
-                    break;
-                }
-            }
-        }
-    } 
-    state.pos_ptr.values[0] += input->width + margin_right + padding * 2.0f + border_width;
-    state.pos_ptr.values[1] -= margin_top + border_width;
-    if(type == INPUT_FLOAT)
-        *(float*)input->val = atof(input->buf);
-    else if(type == INPUT_INT)
-        *(int32_t*)input->val = atoi(input->buf);
-}
-
-static int32_t get_max_char_height_font(LfFont font) {
-    float fontScale = stbtt_ScaleForPixelHeight(font.font_info, font.font_size);
-    int32_t xmin, ymin, xmax, ymax;
-    int32_t codepoint = 'y';
-    stbtt_GetCodepointBitmapBox(font.font_info, codepoint, fontScale, fontScale, &xmin, &ymin, &xmax, &ymax);
-    return ymax - ymin;
-}
-LfTextProps text_render(LfVec2f pos, const char* str, LfFont font, int32_t wrap_point, int32_t stop_point, int32_t start_point, bool no_render, 
-                        LfVec4f color) {
-    float tex_index = -1.0f;
-    if(!no_render) {
-        for(uint32_t i = 0; i < state.render.tex_count; i++) {
-            if(state.render.textures[i].id == font.bitmap.id) {
-                tex_index = (float)i;
-                break;
-            }
-        }
-        if(tex_index == -1.0f) {
-            tex_index = (float)state.render.tex_index;
-            LfTexture tex = font.bitmap;
-            state.render.textures[state.render.tex_count++] = tex;
-            state.render.tex_index++;
-        }
-    }
-    LfTextProps ret = {0};
-    float x = pos.values[0];
-    float y = pos.values[1];
-    int32_t max_descended_char_height = get_max_char_height_font(font);
-
-    bool reached_stop = false;
-    bool new_line = false;
-
-    float last_x = x;
-    float last_char_width = 0, first_char_width = -1;
-    int32_t first_char_index = 0;
-    int32_t i = 0;
-
-    int32_t height = get_max_char_height_font(font);
-    float width = 0;
-    int32_t char_count = 0;
-
-    while(*str) { 
-        bool skip = false;
-        if(*str == '\n' || (x >= wrap_point && wrap_point != -1)) {
-            y += font.font_size;
-            height += font.font_size;
-            if(x - pos.values[0] > width) {
-                width = x - pos.values[0];
-            }
-            x = pos.values[0];
-            last_x = x;
-            if(*str == '\n' || *str == ' ') {
-                skip = true; 
-            }
-            new_line = true;
-        }
-        if(!skip) {
-            stbtt_aligned_quad q;
-            stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
-            if(x - pos.values[0] > stop_point && stop_point != -1) {
-                reached_stop = true;
-                if(x - pos.values[0] > width) {
-                    width = x - pos.values[0];
-                }
-                ret.width = width; 
-                ret.height = height;
-                ret.char_count = i - first_char_index; 
-                ret.reached_stop = reached_stop;
-                ret.end_x = x;
-                return ret;
-            }
-            if((start_point != -1 && x >= start_point) || start_point == -1)  {
-                if(first_char_width == -1) { 
-                    first_char_width = x - last_x;
-                    first_char_index = i; 
-                    ret.start_x = q.x0;
-                }
-                if(!no_render) {
-                    LfVec2f texcoords[6] = {
-                        q.s0, q.t0, 
-                        q.s0, q.t1, 
-                        q.s1, q.t1, 
-
-                        q.s0, q.t0, 
-                        q.s1, q.t1, 
-                        q.s1, q.t0
-                    };
-                    for(uint32_t i = 0; i < 6; i++) {
-                        LfVec2f verts[6] = {
-                            (LfVec2f){q.x0, q.y0 + max_descended_char_height}, 
-                            (LfVec2f){q.x0, q.y1 + max_descended_char_height}, 
-                            (LfVec2f){q.x1, q.y1 + max_descended_char_height},
-
-                            (LfVec2f){q.x0, q.y0 + max_descended_char_height},
-                            (LfVec2f){q.x1, q.y1 + max_descended_char_height}, 
-                            (LfVec2f){q.x1, q.y0 + max_descended_char_height}
-                        }; 
-                        state.render.verts[state.render.vert_count].pos = verts[i]; 
-                        state.render.verts[state.render.vert_count].color = color;
-                        state.render.verts[state.render.vert_count].texcoord = texcoords[i];
-                        state.render.verts[state.render.vert_count].tex_index = tex_index;
-                        state.render.vert_count++;
-                    }
-                }
-                char_count++;
-                last_char_width = x - last_x;
-                last_x = x;
-            }
-        }
-        str++;
-        i++;
-    }
-    if(x - pos.values[0] > width) {
-        width = x - pos.values[0];
-    }
-    ret.width = width;
-    ret.height = height;
-    ret.char_count = i - first_char_index; 
-    ret.reached_stop = (x > stop_point);
-    ret.end_x = x;
-    return ret;
-}
-
-void flush() {
-    if(state.render.vert_count <= 0) return;
-
-    glUseProgram(state.render.shader.id);
-    glBindBuffer(GL_ARRAY_BUFFER, state.render.vbo);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * state.render.vert_count, 
-                    state.render.verts);
-
-    for(uint32_t i = 0; i < MAX_TEX_COUNT_BATCH; i++) {
-        glBindTextureUnit(i, state.render.textures[i].id);
-    }
-
-    glBindVertexArray(state.render.vao);
-    glDrawArrays(GL_TRIANGLES, 0, state.render.vert_count);
-
-    state.render.vert_count = 0;
-    state.render.tex_index = 0;
 }
 
 void lf_add_key_callback(void* cb) {
@@ -1324,6 +1497,7 @@ double lf_get_mouse_scroll_y() {
 }
 
 LfClickableItemState lf_button(const char* text) {
+    // Retrieving the property data of the button
     float padding = state.theme.button_props.padding;
     float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
         margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom; 
@@ -1333,23 +1507,30 @@ LfClickableItemState lf_button(const char* text) {
     LfVec4f text_color = state.text_color_stack.values[3] != -1 ? state.text_color_stack : state.theme.button_props.text_color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
 
+    // If the button does not fit onto the current div, advance to the next line
     LfTextProps text_props = text_render(state.pos_ptr, text, state.theme.font, -1, -1, -1, true, text_color);
     next_line_on_overflow(
         (LfVec2f){text_props.width + padding * 2.0f + margin_right + margin_left + border_width * 2.0f, 
                     text_props.height + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f});
 
+    // Advancing the position pointer by the margins
     state.pos_ptr.values[0] += margin_left + border_width;
     state.pos_ptr.values[1] += margin_top + border_width;
+
+    // Rendering the button
     LfClickableItemState ret = clickable_item(state.pos_ptr, (LfVec2i){text_props.width + padding * 2, text_props.height + padding * 2}, 
                                               state.theme.button_props, color, true, true);
+    // Rendering the text of the button
     text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + text_props.height / 2.0f}, text, font, -1, -1, -1, false, text_color);
 
+    // Advancing the position pointer by the width of the button
     state.pos_ptr.values[0] += text_props.width + margin_right + padding * 2.0f + border_width;
     state.pos_ptr.values[1] -= margin_top + border_width;
 
     return ret; 
 }
 LfClickableItemState lf_button_fixed(const char* text, int32_t width, int32_t height) {
+    // Retrieving the property data of the button
     float padding = state.theme.button_props.padding;
     float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
         margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom;
@@ -1359,28 +1540,36 @@ LfClickableItemState lf_button_fixed(const char* text, int32_t width, int32_t he
     LfVec4f text_color = state.text_color_stack.values[3] != -1 ? state.text_color_stack : state.theme.button_props.text_color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
 
+    // If the button does not fit onto the current div, advance to the next line
     LfTextProps text_props = text_render(state.pos_ptr, text, state.theme.font, -1, -1, -1, true, text_color);
     next_line_on_overflow(
         (LfVec2f){((width == -1) ? text_props.width : width + padding * 2.0f) + margin_right + margin_left + border_width * 2.0f,
             ((height == -1) ? text_props.height : height) + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f}); 
 
+    // Advancing the position pointer by the margins
     state.pos_ptr.values[0] += margin_left + border_width;
     state.pos_ptr.values[1] += margin_top + border_width;
+
+    // Rendering the button
     LfClickableItemState ret = clickable_item(state.pos_ptr, 
         (LfVec2i){width == -1 ? text_props.width + padding * 2.0f : width + padding * 2, ((height == -1) ? text_props.height : height) + padding * 2}, state.theme.button_props, 
                                               color, true, true);
+
+    // Rendering the text of the button
     text_render((LfVec2f)
         {state.pos_ptr.values[0] + padding + ((width != -1) ? width / 2.0f - text_props.width / 2.0f : 0),
         state.pos_ptr.values[1] + padding + ((height != -1) ? height / 2.0f - text_props.height / 2.0f : 0)
         }, text, font, -1, -1, -1,
                    false, text_color);
 
+    // Advancing the position pointer by the width of the button
     state.pos_ptr.values[0] += ((width == -1) ? text_props.width : width) + margin_right + border_width + padding * 2.0f;
     state.pos_ptr.values[1] -= margin_top + border_width;
     return ret;
 }
 
 LfClickableItemState lf_div_begin(LfVec2f pos, LfVec2i size) {
+    // Re-initializing the div 
     if(!state.current_div.init_size) {
         state.current_div.aabb.pos = pos;
         state.current_div.aabb.size = size;
@@ -1398,27 +1587,16 @@ LfClickableItemState lf_div_begin(LfVec2f pos, LfVec2i size) {
 }
 
 void lf_div_end() {
+    // Un-initializing the div
     state.current_div.init = false;
 }
 
 void lf_next_line() {
+    // Advancing the position pointer by the current line height
     state.pos_ptr.values[1] += state.current_line_height;
     state.pos_ptr.values[0] = state.current_div.aabb.pos.values[0];
     state.current_line_height = 0;
     state.gui_re_ev.happened = true;
-}
-
-void update_input() {
-    memcpy(state.input.mouse.buttons_last, state.input.mouse.buttons_current, sizeof(bool) * MAX_MOUSE_BUTTONS);
-}
-
-void clear_events() {
-    state.key_ev.happened = false;
-    state.mb_ev.happened = false;
-    state.cp_ev.happened = false;
-    state.scr_ev.happened = false;
-    state.ch_ev.happened = false;
-    state.gui_re_ev.happened = false;
 }
 LfVec2f lf_text_dimension(const char* str) {
     LfTextProps props = text_render((LfVec2f){0.0f, 0.0f}, str, state.theme.font, 
@@ -1434,31 +1612,43 @@ float lf_get_text_end(const char* str, float start_x) {
 }
 
 void lf_text(const char* fmt, ...) {
+    if(!state.current_div.init) {
+        LF_ERROR("Trying to render without div context. Call lf_div_begin()");
+        return;
+    }
     char buf[512];
     va_list args;
     va_start(args, fmt);
     vsprintf(buf, fmt, args);
     va_end(args);
+    // Retrieving the property data of the text
     float padding = state.theme.text_props.padding;
     float margin_left = state.theme.text_props.margin_left, margin_right = state.theme.text_props.margin_right, 
         margin_top = state.theme.text_props.margin_top, margin_bottom = state.theme.text_props.margin_bottom;
     LfVec4f text_color = state.text_color_stack.values[3] != -1 ? state.text_color_stack : state.theme.text_props.text_color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
 
+    // Advancing to the next line if the the text does not fit on the current div
     LfTextProps text_props = text_render(state.pos_ptr, buf, font, 
                                         state.text_wrap ? (state.current_div.aabb.size.values[0] + state.current_div.aabb.pos.values[0]) - margin_right * 2.0 : -1,
                                          -1, -1, true, text_color);
     next_line_on_overflow(
         (LfVec2f){text_props.width + padding * 2.0f + margin_left + margin_right,
                     text_props.height + padding * 2.0f + margin_top + margin_bottom});
+
+    // Advancing the position pointer by the margins
     state.pos_ptr.values[0] += margin_left;
     state.pos_ptr.values[1] += margin_top;
-    if(state.pos_ptr.values[1] + text_props.height + margin_bottom + padding * 2.0f >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return;
+
+    // Rendering the text color box if any
     if(state.theme.text_props.color.values[3] != 0.0f) {
         rect_render((LfVec2f){state.pos_ptr.values[0], state.pos_ptr.values[1] + margin_top}, (LfVec2i){text_props.width + padding * 2.0f, text_props.height + padding * 2.0f}, state.theme.text_props.color);
     }
+    // Rendering the text
     text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, buf, font, 
                 state.text_wrap ? (state.current_div.aabb.size.values[0] + state.current_div.aabb.pos.values[0]) - margin_right * 2.0f : -1, -1, -1, false, text_color);
+
+    // Advancing the position pointer by the width of the text
     state.pos_ptr.values[0] += text_props.width + margin_right + padding;
     state.pos_ptr.values[1] -= margin_top;
 }
@@ -1476,18 +1666,26 @@ void lf_set_ptr_y(float y) {
 }
 
 void lf_image(LfTexture tex) {
+    if(!state.current_div.init) {
+        LF_ERROR("Trying to render without div context. Call lf_div_begin()");
+        return;
+    }
+    // Retrieving the property data of the image
     float margin_left = state.theme.image_props.margin_left, margin_right = state.theme.image_props.margin_right, 
         margin_top = state.theme.image_props.margin_top, margin_bottom = state.theme.image_props.margin_bottom;
     LfVec4f color = state.item_color_stack.values[3] != -1 ? state.item_color_stack : state.theme.image_props.color;
 
-    if(state.pos_ptr.values[0] + tex.width + margin_left + margin_right >= state.current_div.aabb.size.values[0]) {
-        state.pos_ptr.values[0] = state.current_div.aabb.pos.values[0];
-        state.pos_ptr.values[1] += tex.height + margin_bottom + margin_top;
-    }
-    if(state.pos_ptr.values[1] + tex.height + margin_bottom >= state.current_div.aabb.size.values[1] + state.current_div.aabb.pos.values[1]) return;   
+    // Advancing to the next line if the image does not fit on the current div
+    next_line_on_overflow((LfVec2f){tex.width + margin_left + margin_right, tex.height + margin_top + margin_bottom});
+
+    // Advancing the position pointer by the margins
     state.pos_ptr.values[0] += margin_left; 
     state.pos_ptr.values[1] += margin_top;
+
+    // Rendering the image
     image_render(state.pos_ptr, color, tex);
+
+    // Advancing the position pointer by the width of the image
     state.pos_ptr.values[0] += tex.width + margin_right;
     state.pos_ptr.values[1] -= margin_top;
 }
@@ -1499,68 +1697,6 @@ void lf_update() {
     update_input();
     clear_events();
     flush();
-}
-
-static double get_char_width(LfFont font, char c) {
-    float scale = stbtt_ScaleForPixelHeight(font.font_info, font.font_size);
-    int32_t advance_width, left_side_bearing;
-    stbtt_GetCodepointHMetrics(font.font_info, c, &advance_width, &left_side_bearing);
-    double character_width = (advance_width + left_side_bearing) * scale;
-    return character_width;
-}
-
-float get_kerning(int32_t prev_character_codepoint, int current_character_codepoint) {
-    float scale = stbtt_ScaleForPixelHeight(state.theme.font.font_info, state.theme.font.font_size);
-    int32_t kern_advance = stbtt_GetCodepointKernAdvance(state.theme.font.font_info, prev_character_codepoint, current_character_codepoint);
-    float kerning = kern_advance * scale;
-    return kerning;
-}
-
-void remove_i_str(char *str, int32_t index) {
-    int32_t len = strlen(str);
-    if (index >= 0 && index < len) {
-        for (int32_t i = index; i < len - 1; i++) {
-            str[i] = str[i + 1];
-        }
-        str[len - 1] = '\0';
-    }
-}
-void insert_i_str(char *str, char ch, int32_t index) {
-    int32_t len = strlen(str);
-    if (index >= 0 && index <= len) {
-        for (int32_t i = len; i >= index; i--) {
-            str[i + 1] = str[i];
-        }
-        str[index] = ch;
-    }
-}
-
-bool hovered(LfVec2f pos, LfVec2i size) {
-    bool hovered = lf_get_mouse_x() <= (pos.values[0] + size.values[0]) && lf_get_mouse_x() >= (pos.values[0]) && 
-        lf_get_mouse_y() <= (pos.values[1] + size.values[1]) && lf_get_mouse_y() >= (pos.values[1]);
-    return hovered;
-}
-
-void next_line_on_overflow(LfVec2f size) {
-    if(state.pos_ptr.values[0] - state.current_div.aabb.pos.values[0] + size.values[0] >= state.current_div.aabb.size.values[0]) {
-        lf_next_line();
-    }
-    if(size.values[1] > state.current_line_height) {
-        state.current_line_height = size.values[1];
-    }
-}
-
-int32_t closes_num_in_arr(int arr[], int n, int target) {
-    int32_t closest = 0;
-    int32_t min_diff = INT_MAX;
-    for (int32_t i = 0; i < n; i++) {
-        int32_t diff = abs(arr[i] - target);
-        if (diff < min_diff) {
-            min_diff = diff;
-            closest = arr[i];
-        }
-    }
-    return closest;
 }
 void lf_input_text(LfInputField* input) {
     input_field(input, INPUT_TEXT);

@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
     }
 
     LfTheme theme = lf_default_theme("../test/fonts/poppins.ttf", 28);
-    LfFont font = lf_load_font("../test/fonts/poppins.ttf", 64);
+    LfFont font = lf_load_font("../test/fonts/impact.ttf", 64);
     lf_init_glfw(win_w, win_h, "../test/fonts/poppins.ttf", &theme, window);   
     glfwSetFramebufferSizeCallback(window, resize_callback);
 
