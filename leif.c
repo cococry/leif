@@ -150,9 +150,6 @@ typedef struct {
 } GuiReEstablishEvent;
 
 typedef struct {
-    uint32_t win_start, win_end;
-} StrWin;
-typedef struct {
     bool init;
     uint32_t dsp_w, dsp_h;
     void* window_handle;
@@ -163,8 +160,7 @@ typedef struct {
 
     LfDiv current_div;
     int32_t current_line_height;
-    StrWin current_input_win;
-
+    bool text_wrap;
     LfVec2f pos_ptr; 
 
     KeyEvent key_ev;
@@ -230,17 +226,17 @@ static bool                     hovered(LfVec2f pos, LfVec2i size);
 static void                     next_line_on_overflow(LfVec2f size);
 
 // Utility
-static int                      closes_num_in_arr(int arr[], int n, int target);
+static int32_t                  closes_num_in_arr(int arr[], int n, int target);
 static int32_t                  get_max_char_height_font(LfFont font);
 static double                   get_char_width(LfFont font, char c);
-static float                    get_kerning(int prev_character_codepoint, int current_character_codepoint);
-static void                     remove_i_str(char *str, int index);
-static void                     insert_i_str(char *str, char ch, int index);
+static float                    get_kerning(int32_t prev_character_codepoint, int current_character_codepoint);
+static void                     remove_i_str(char *str, int32_t index);
+static void                     insert_i_str(char *str, char ch, int32_t index);
 
 // --- Input ---
 #ifdef LF_GLFW
-static void                     glfw_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
-static void                     glfw_mouse_button_callback(GLFWwindow* window, int button, int action, int mods); 
+static void                     glfw_key_callback(GLFWwindow* window, int32_t key, int scancode, int action, int mods);
+static void                     glfw_mouse_button_callback(GLFWwindow* window, int32_t button, int action, int mods); 
 static void                     glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 static void                     glfw_cursor_callback(GLFWwindow* window, double xpos, double ypos);
 static void                     glfw_char_callback(GLFWwindow* window, uint32_t charcode);
@@ -440,7 +436,8 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
     stbtt_InitFont((stbtt_fontinfo*)font.font_info, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
     
     uint8_t buf[1<<20];
-    uint8_t bitmap[tex_width * tex_height];
+    uint8_t* bitmap = malloc(tex_width * tex_height * sizeof(uint32_t));
+    uint8_t* bitmap_4bpp = malloc(tex_width * tex_height * 4 * sizeof(uint32_t));
     fread(buf, 1, 1<<20, fopen(filepath, "rb"));
     font.cdata = malloc(sizeof(stbtt_bakedchar) * 256);
     font.tex_width = tex_width;
@@ -448,7 +445,6 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
     font.line_gap_add = line_gap_add;
     font.font_size = pixelsize;
     stbtt_BakeFontBitmap(buf, 0, pixelsize, bitmap, tex_width, tex_height, 32, num_glyphs, (stbtt_bakedchar*)font.cdata);
-    uint8_t bitmap_4bpp[tex_width * tex_height * 4];
 
     uint32_t bitmap_index = 0;
     for(uint32_t i = 0; i < (uint32_t)(tex_width * tex_height * 4); i++) {
@@ -460,7 +456,6 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
 
     glGenTextures(1, &font.bitmap.id);
     glBindTexture(GL_TEXTURE_2D, font.bitmap.id);
-
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -468,6 +463,8 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tex_width, tex_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bitmap_4bpp);
     glGenerateMipmap(GL_TEXTURE_2D);
 
+    free(bitmap);
+    free(bitmap_4bpp);
     return font;
 }
 
@@ -713,7 +710,7 @@ LfClickableItemState clickable_item(LfVec2f pos, LfVec2i size, LfUIElementProps 
 }
 
 #ifdef LF_GLFW
-void glfw_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+void glfw_key_callback(GLFWwindow* window, int32_t key, int scancode, int action, int mods) {
     (void)window;
     (void)mods;
     (void)scancode;
@@ -731,7 +728,7 @@ void glfw_key_callback(GLFWwindow* window, int key, int scancode, int action, in
     state.key_ev.pressed = action != GLFW_RELEASE;
     state.key_ev.keycode = key;
 }
-void glfw_mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+void glfw_mouse_button_callback(GLFWwindow* window, int32_t button, int action, int mods) {
     (void)window;
     (void)mods;
     if(action != GLFW_RELEASE)  {
@@ -805,8 +802,7 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* f
     state.input.mouse.first_mouse_press = true;
     state.render.tex_count = 0;
     state.pos_ptr = (LfVec2f){0, 0};
-    state.current_input_win.win_end = 0;
-    state.current_input_win.win_start = 0;
+    state.text_wrap = false;
     if(theme != NULL) {
         state.theme = *theme;
         if(!state.theme.font.cdata) {
@@ -967,7 +963,7 @@ void input_field(LfInputField* input, InputFieldType type) {
     int32_t cursor_index_pre = input->cursor_index;
     next_line_on_overflow(
         (LfVec2f){input->width + padding * 2.0f + margin_left + margin_right + border_width * 2.0f, 
-                  state.theme.font.font_size + padding * 2 + border_width * 2.0f} 
+                  state.theme.font.font_size + padding * 2 + margin_top + margin_bottom + border_width * 2.0f} 
     );
     state.pos_ptr.values[0] += margin_left + border_width;
     state.pos_ptr.values[1] += margin_top + border_width;
@@ -1044,7 +1040,7 @@ void input_field(LfInputField* input, InputFieldType type) {
             char text_buf[strlen(input->buf)];
             memset(text_buf, 0, sizeof(text_buf));
             for(uint32_t i = 0; i < strlen(input->buf); i++) {
-                input->char_positions[i] = lf_get_tex_end(text_buf, state.pos_ptr.values[0] + padding);
+                input->char_positions[i] = lf_get_text_end(text_buf, state.pos_ptr.values[0] + padding);
                 int32_t len = strlen(text_buf);
                 text_buf[len] = input->buf[i];
                 text_buf[len + 1] = '\0';
@@ -1080,8 +1076,8 @@ void input_field(LfInputField* input, InputFieldType type) {
 
 static int32_t get_max_char_height_font(LfFont font) {
     float fontScale = stbtt_ScaleForPixelHeight(font.font_info, font.font_size);
-    int xmin, ymin, xmax, ymax;
-    int codepoint = 'y';
+    int32_t xmin, ymin, xmax, ymax;
+    int32_t codepoint = 'y';
     stbtt_GetCodepointBitmapBox(font.font_info, codepoint, fontScale, fontScale, &xmin, &ymin, &xmax, &ymax);
     return ymax - ymin;
 }
@@ -1104,7 +1100,7 @@ LfTextProps text_render(LfVec2f pos, const char* str, LfFont font, LfUIElementPr
     LfTextProps ret = {0};
     float x = pos.values[0];
     float y = pos.values[1];
-    int max_descended_char_height = get_max_char_height_font(font);
+    int32_t max_descended_char_height = get_max_char_height_font(font);
 
     bool reached_stop = false;
     bool new_line = false;
@@ -1390,7 +1386,7 @@ LfVec2f lf_text_dimension(const char* str) {
     return (LfVec2f){props.width, props.height};
 }
 
-float lf_get_tex_end(const char* str, float start_x) {
+float lf_get_text_end(const char* str, float start_x) {
     LfTextProps props = text_render((LfVec2f){start_x, 0.0f}, str, state.theme.font, state.theme.text_props, 
                           -1, -1, -1, true);
     return props.end_x;
@@ -1406,7 +1402,8 @@ void lf_text(const char* fmt, ...) {
     float margin_left = state.theme.text_props.margin_left, margin_right = state.theme.text_props.margin_right, 
         margin_top = state.theme.text_props.margin_top, margin_bottom = state.theme.text_props.margin_bottom;
 
-    LfTextProps text_props = text_render(state.pos_ptr, buf, state.theme.font, state.theme.text_props, -1, -1, -1, true);
+    LfTextProps text_props = text_render(state.pos_ptr, buf, state.theme.font, state.theme.text_props, 
+                                    state.text_wrap ? (state.current_div.aabb.size.values[0] + state.current_div.aabb.pos.values[0]) - margin_right * 2.0 : -1, -1, -1, true);
     next_line_on_overflow(
         (LfVec2f){text_props.width + padding * 2.0f + margin_left + margin_right,
                     text_props.height + padding * 2.0f + margin_top + margin_bottom});
@@ -1416,7 +1413,8 @@ void lf_text(const char* fmt, ...) {
     if(state.theme.text_props.color.values[3] != 0.0f) {
         rect_render((LfVec2f){state.pos_ptr.values[0], state.pos_ptr.values[1] + margin_top}, (LfVec2i){text_props.width + padding * 2.0f, text_props.height + padding * 2.0f}, state.theme.text_props.color);
     }
-    text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, buf, state.theme.font, state.theme.text_props, -1, -1, -1, false);
+    text_render((LfVec2f){state.pos_ptr.values[0] + padding, state.pos_ptr.values[1] + padding}, buf, state.theme.font, state.theme.text_props, 
+                state.text_wrap ? (state.current_div.aabb.size.values[0] + state.current_div.aabb.pos.values[0]) - margin_right * 2.0f : -1, -1, -1, false);
     state.pos_ptr.values[0] += text_props.width + margin_right + padding;
     state.pos_ptr.values[1] -= margin_top;
 }
@@ -1462,33 +1460,33 @@ void lf_update() {
 
 static double get_char_width(LfFont font, char c) {
     float scale = stbtt_ScaleForPixelHeight(font.font_info, font.font_size);
-    int advance_width, left_side_bearing;
+    int32_t advance_width, left_side_bearing;
     stbtt_GetCodepointHMetrics(font.font_info, c, &advance_width, &left_side_bearing);
     double character_width = (advance_width + left_side_bearing) * scale;
     return character_width;
 }
 
 
-float get_kerning(int prev_character_codepoint, int current_character_codepoint) {
+float get_kerning(int32_t prev_character_codepoint, int current_character_codepoint) {
     float scale = stbtt_ScaleForPixelHeight(state.theme.font.font_info, state.theme.font.font_size);
-    int kern_advance = stbtt_GetCodepointKernAdvance(state.theme.font.font_info, prev_character_codepoint, current_character_codepoint);
+    int32_t kern_advance = stbtt_GetCodepointKernAdvance(state.theme.font.font_info, prev_character_codepoint, current_character_codepoint);
     float kerning = kern_advance * scale;
     return kerning;
 }
 
-void remove_i_str(char *str, int index) {
-    int len = strlen(str);
+void remove_i_str(char *str, int32_t index) {
+    int32_t len = strlen(str);
     if (index >= 0 && index < len) {
-        for (int i = index; i < len - 1; i++) {
+        for (int32_t i = index; i < len - 1; i++) {
             str[i] = str[i + 1];
         }
         str[len - 1] = '\0';
     }
 }
-void insert_i_str(char *str, char ch, int index) {
-    int len = strlen(str);
+void insert_i_str(char *str, char ch, int32_t index) {
+    int32_t len = strlen(str);
     if (index >= 0 && index <= len) {
-        for (int i = len; i >= index; i--) {
+        for (int32_t i = len; i >= index; i--) {
             str[i + 1] = str[i];
         }
         str[index] = ch;
@@ -1510,11 +1508,11 @@ void next_line_on_overflow(LfVec2f size) {
     }
 }
 
-int closes_num_in_arr(int arr[], int n, int target) {
-    int closest = 0;
-    int min_diff = INT_MAX;
-    for (int i = 0; i < n; i++) {
-        int diff = abs(arr[i] - target);
+int32_t closes_num_in_arr(int arr[], int n, int target) {
+    int32_t closest = 0;
+    int32_t min_diff = INT_MAX;
+    for (int32_t i = 0; i < n; i++) {
+        int32_t diff = abs(arr[i] - target);
         if (diff < min_diff) {
             min_diff = diff;
             closest = arr[i];
@@ -1531,4 +1529,8 @@ void lf_input_int(LfInputField *input) {
 }
 void lf_input_float(LfInputField* input) {
     input_field(input, INPUT_FLOAT);
+}
+
+void lf_set_text_wrap(bool wrap) {
+    state.text_wrap = wrap;
 }

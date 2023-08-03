@@ -42,6 +42,8 @@ int main(int argc, char* argv[]) {
 
     LfInputField input_height = (LfInputField){.buf = height_buf, .width = 600, .val = &height};
     bool submitted_name = false, submitted_age = false, submitted_height = false, generated = false;
+
+    lf_set_text_wrap(true);
     while(!glfwWindowShouldClose(window)) {
         float currentTime = glfwGetTime();
         deltaTime = currentTime - lastTime;
@@ -91,7 +93,7 @@ int main(int argc, char* argv[]) {
         }
         if(submitted_age && submitted_name && generated) {
             lf_next_line();
-            lf_text("Your greeting: \"Hey There, my name is %s, i'm %i years old and %.2fm tall. Nice to meet you!\"", name_buf, height, age);
+            lf_text("Your greeting: \"Hey There, my name is %s, i'm %i years old and %.2fm tall. Nice to meet you! How are you? What did you do today?\"", name_buf, height, age);
         }
         lf_div_end();
 

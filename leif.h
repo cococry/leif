@@ -89,7 +89,6 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size);
 
 void lf_resize_display(uint32_t display_width, uint32_t display_height);
 
-
 LfFont lf_load_font(const char* filepath, uint32_t size);
 
 LfTexture lf_tex_create(const char* filepath, bool flip, LfTextureFiltering filter); 
@@ -140,13 +139,11 @@ LfClickableItemState lf_button(const char* text);
 
 LfClickableItemState lf_button_fixed(const char* text, int32_t width, int32_t height);
  
-LfUIElementProps lf_style_color(LfVec4f color);
-
 void lf_next_line();
 
 LfVec2f lf_text_dimension(const char* str);
 
-float lf_get_tex_end(const char* str, float start_x);
+float lf_get_text_end(const char* str, float start_x);
 
 void lf_text(const char* fmt, ...);
 
@@ -167,3 +164,5 @@ void lf_input_text(LfInputField* input);
 void lf_input_int(LfInputField* input);
 
 void lf_input_float(LfInputField* input);
+
+void lf_set_text_wrap(bool wrap);
