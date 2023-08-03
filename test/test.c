@@ -26,7 +26,9 @@ int main(int argc, char* argv[]) {
     if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         printf("Failed to initialize Glad.\n");
     }
+
     LfTheme theme = lf_default_theme("../test/fonts/poppins.ttf", 28);
+    LfFont font = lf_load_font("../test/fonts/poppins.ttf", 64);
     lf_init_glfw(win_w, win_h, "../test/fonts/poppins.ttf", &theme, window);   
     glfwSetFramebufferSizeCallback(window, resize_callback);
 
@@ -44,6 +46,8 @@ int main(int argc, char* argv[]) {
     bool submitted_name = false, submitted_age = false, submitted_height = false, generated = false;
 
     lf_set_text_wrap(true);
+    LfVec4f color = (LfVec4f){-1.0f, -1.0f, -1.0f, -1.0f};
+
     while(!glfwWindowShouldClose(window)) {
         float currentTime = glfwGetTime();
         deltaTime = currentTime - lastTime;
@@ -52,7 +56,10 @@ int main(int argc, char* argv[]) {
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
         
         lf_div_begin((LfVec2f){0, 0}, (LfVec2i){win_w, win_h});
+        lf_set_item_color(color);
+        lf_push_font(&font);
         lf_text("Greetings Generator");
+        lf_pop_font();
         lf_next_line();
         lf_text("Your age:");
         lf_input_int(&input_age);
@@ -79,6 +86,15 @@ int main(int argc, char* argv[]) {
         if(lf_button_fixed("Close App", 150, 150) == LF_CLICKED) {
             glfwSetWindowShouldClose(window, true);
         }
+        if(lf_button_fixed("Red", 150, 150) == LF_CLICKED) {
+            color = (LfVec4f){LF_RED};
+        }
+        if(lf_button_fixed("Green", 150, 150) == LF_CLICKED) {
+            color = (LfVec4f){LF_GREEN};
+        }
+        if(lf_button_fixed("Normal", 150, 150) == LF_CLICKED) {
+            color = (LfVec4f){-1.0f, -1.0f, -1.0f, -1.0f};
+        }
         if(submitted_age) {
             lf_next_line();
             lf_text("Submitted age: %i", age);
@@ -95,6 +111,7 @@ int main(int argc, char* argv[]) {
             lf_next_line();
             lf_text("Your greeting: \"Hey There, my name is %s, i'm %i years old and %.2fm tall. Nice to meet you! How are you? What did you do today?\"", name_buf, height, age);
         }
+        lf_unset_item_color();
         lf_div_end();
 
         lf_update();

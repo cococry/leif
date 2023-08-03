@@ -69,7 +69,7 @@ typedef enum {
 } LfClickableItemState;
 
 typedef struct {
-    LfVec4f color, hover_color, clicked_color, text_color, border_color;
+    LfVec4f color, text_color, border_color;
     float padding, margin_left, margin_right, margin_top, margin_bottom;
     float border_width;
 } LfUIElementProps;
@@ -166,3 +166,15 @@ void lf_input_int(LfInputField* input);
 void lf_input_float(LfInputField* input);
 
 void lf_set_text_wrap(bool wrap);
+
+void lf_set_item_color(LfVec4f color);
+
+void lf_unset_item_color();
+
+void lf_set_text_color(LfVec4f color);
+
+void lf_unset_text_color();
+
+void lf_push_font(LfFont* font);
+
+void lf_pop_font();
