@@ -1407,6 +1407,17 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
         .border_width = 4,
         .border_color = (LfVec4f){LF_BLACK}
     };
+    theme.checkbox_props = (LfUIElementProps){ 
+        .color = (LfVec4f){LF_RGBA(133, 138, 148, 255)}, 
+        .text_color = (LfVec4f){LF_RGBA(0, 0, 0, 255)}, 
+        .margin_left = 10, 
+        .margin_right = 10, 
+        .margin_top = 10, 
+        .margin_bottom = 10, 
+        .padding = 10, 
+        .border_width = 4,
+        .border_color = (LfVec4f){LF_BLACK}
+    };
     theme.font = load_font(font_path, font_size, 1024, 1024, 256, 5); 
     return theme;
 }
@@ -1733,4 +1744,39 @@ void lf_push_font(LfFont* font) {
 
 void lf_pop_font() {
     state.font_stack = NULL;
+}
+void lf_checkbox(const char* text, bool* val, uint32_t tex) {        
+    float margin_left = state.theme.checkbox_props.margin_left;
+    float margin_right = state.theme.checkbox_props.margin_right;
+    float margin_top = state.theme.checkbox_props.margin_top;
+    float margin_bottom = state.theme.checkbox_props.margin_bottom;
+
+    LfVec4f color = state.item_color_stack.values[3] != -1 ? state.item_color_stack : state.theme.checkbox_props.color;
+    LfVec4f text_color = state.text_color_stack.values[3] != -1 ? state.text_color_stack : state.theme.checkbox_props.text_color;
+    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+    float checkbox_size = state.theme.font.font_size;
+
+    // Render the text of the checkbox
+    lf_text(text);
+
+    // Advance to next line if the object does not fit on the div
+    next_line_on_overflow((LfVec2f){checkbox_size + margin_left + margin_right, checkbox_size + margin_top + margin_bottom});
+    
+    state.pos_ptr.values[0] += margin_left; 
+    state.pos_ptr.values[1] += margin_top;
+    
+    // Render the box 
+    LfClickableItemState checkbox = clickable_item(state.pos_ptr, (LfVec2i){checkbox_size, checkbox_size}, 
+                                                   state.theme.checkbox_props, state.theme.checkbox_props.color, true, false);
+
+    // Change the value if the checkbox is clicked
+    if(checkbox == LF_CLICKED) {
+        *val = !*val;
+    }
+    if(*val) {
+        // Render the image
+        image_render(state.pos_ptr, (LfVec4f){LF_WHITE}, (LfTexture){.width = checkbox_size, .height = checkbox_size, .id = tex});
+    }
+    state.pos_ptr.values[0] += checkbox_size + margin_right;
+    state.pos_ptr.values[1] -= margin_top;
 }

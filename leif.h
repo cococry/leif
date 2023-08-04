@@ -76,7 +76,7 @@ typedef struct {
 
 typedef struct {
     LfUIElementProps button_props, div_props, text_props, image_props, 
-                     inputfield_props;
+                     inputfield_props, checkbox_props;
     LfFont font;
 } LfTheme;
 
@@ -178,3 +178,5 @@ void lf_unset_text_color();
 void lf_push_font(LfFont* font);
 
 void lf_pop_font();
+
+void lf_checkbox(const char* text, bool* val, uint32_t tex);
