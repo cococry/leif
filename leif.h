@@ -163,3 +163,4 @@ void lf_pop_font();
 
 void lf_checkbox(const char* text, bool* val, uint32_t tex);
 
+void lf_rect(float width, float height, vec4s color);

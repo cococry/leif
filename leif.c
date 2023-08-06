@@ -59,7 +59,7 @@
 #define SCROLL_CALLBACK_t void*
 #define CURSOR_CALLBACK_t void*
 #endif
-#define MAX_VERT_COUNT_BATCH 10000
+#define MAX_RENDER_BATCH 10000
 #define MAX_TEX_COUNT_BATCH 32
 #define MAX_KEY_CALLBACKS 4
 #define MAX_MOUSE_BTTUON_CALLBACKS 4
@@ -119,12 +119,12 @@ typedef struct {
 // State of the batch renderer
 typedef struct {
     LfShader shader;
-    uint32_t vao, vbo;
+    uint32_t vao, vbo, ibo;
     uint32_t vert_count;
-    Vertex verts[MAX_VERT_COUNT_BATCH];
-    vec4s vert_pos[6];
+    Vertex* verts;
+    vec4s vert_pos[4];
     LfTexture textures[MAX_TEX_COUNT_BATCH];
-    uint32_t tex_index, tex_count;
+    uint32_t tex_index, tex_count,index_count;
 } RenderState;
 
 // --- Events ---
@@ -303,6 +303,7 @@ void renderer_init() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     state.render.vert_count = 0;
+    state.render.verts = malloc(sizeof(Vertex) * MAX_RENDER_BATCH * 4);
 
     /* Creating vertex array & vertex buffer for the batch renderer */
     glCreateVertexArrays(1, &state.render.vao);
@@ -310,9 +311,27 @@ void renderer_init() {
     
     glCreateBuffers(1, &state.render.vbo);
     glBindBuffer(GL_ARRAY_BUFFER, state.render.vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * MAX_VERT_COUNT_BATCH, NULL, 
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * MAX_RENDER_BATCH * 4, NULL, 
         GL_DYNAMIC_DRAW);
-    
+
+    uint32_t* indices = malloc(sizeof(uint32_t) * MAX_RENDER_BATCH * 6);
+
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < MAX_RENDER_BATCH * 6; i += 6) {
+        indices[i + 0] = offset + 0;
+        indices[i + 1] = offset + 1;
+        indices[i + 2] = offset + 2;
+
+        indices[i + 3] = offset + 2;
+        indices[i + 4] = offset + 3;
+        indices[i + 5] = offset + 0;
+        offset += 4;
+    }
+    glCreateBuffers(1, &state.render.ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.render.ibo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_RENDER_BATCH * 6 * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+
+    free(indices); 
     // Setting the vertex layout
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), NULL);
     glEnableVertexAttribArray(0);
@@ -362,13 +381,10 @@ void renderer_init() {
 
     // initializing vertex position data
     state.render.vert_pos[0] = (vec4s){-0.5f, -0.5f, 0.0f, 1.0f};
-    state.render.vert_pos[1] = (vec4s){-0.5f,  0.5f, 0.0f, 1.0f};
-    state.render.vert_pos[2] = (vec4s){0.5f,  0.5f, 0.0f, 1.0f};
+    state.render.vert_pos[1] = (vec4s){0.5f, -0.5f, 0.0f, 1.0f};
+    state.render.vert_pos[2] = (vec4s){0.5f, 0.5f, 0.0f, 1.0f};
+    state.render.vert_pos[3] = (vec4s){-0.5f, 0.5f, 0.0f, 1.0f};
 
-    state.render.vert_pos[3] = (vec4s){-0.5f, -0.5f, 0.0f, 1.0f};
-    state.render.vert_pos[4] = (vec4s){0.5f,  0.5f, 0.0f, 1.0f};
-    state.render.vert_pos[5] = (vec4s){0.5f,  -0.5f, 0.0f, 1.0f};
-    
     
     // Setting projection matrix for the shader
     glUseProgram(state.render.shader.id);
@@ -675,14 +691,11 @@ void rect_render(vec2s pos, vec2s size, vec4s color) {
     pos = (vec2s){pos.x + size.x / 2.0f, pos.y + size.y / 2.0f};
 
     // Initializing texture coords data
-    vec2s texcoords[6] = {
+    vec2s texcoords[4] = {
         (vec2s){0.0f, 0.0f},
+        (vec2s){1.0f, 1.0f},
+        (vec2s){1.0f, 1.0f},
         (vec2s){0.0f, 1.0f},
-        (vec2s){1.0f, 1.0f},
-
-        (vec2s){0.0f, 0.0f},
-        (vec2s){1.0f, 1.0f},
-        (vec2s){1.0f, 0.0f},
     };
     // Calculating the transform matrix
     mat4 translate; 
@@ -694,7 +707,7 @@ void rect_render(vec2s pos, vec2s size, vec4s color) {
     glm_scale_make(scale, size_xyz);
     glm_mat4_mul(translate,scale,transform);
     // Adding the vertices to the batch renderer
-    for(uint32_t i = 0; i < 6; i++) {
+    for(uint32_t i = 0; i < 4; i++) {
         vec4 result;
         glm_mat4_mulv(transform, state.render.vert_pos[i].raw, result);
         memcpy(state.render.verts[state.render.vert_count].pos, (vec2){result[0], result[1]}, sizeof(vec2));
@@ -702,7 +715,8 @@ void rect_render(vec2s pos, vec2s size, vec4s color) {
         memcpy(state.render.verts[state.render.vert_count].texcoord, (vec2){texcoords[i].x, texcoords[i].y}, sizeof(vec2));
         state.render.verts[state.render.vert_count].tex_index = -1;
         state.render.vert_count++;
-    } 
+    }
+    state.render.index_count += 6;
 }
 
 void image_render(vec2s pos, vec4s color, LfTexture tex) {
@@ -710,16 +724,12 @@ void image_render(vec2s pos, vec4s color, LfTexture tex) {
     pos = (vec2s){pos.x + tex.width / 2.0f, pos.y + tex.height / 2.0f};
 
     // Initializing texture coords data
-    vec2s texcoords[6] = {
+    vec2s texcoords[4] = {
         (vec2s){0.0f, 0.0f},
+        (vec2s){1.0f, 1.0f},
+        (vec2s){1.0f, 1.0f},
         (vec2s){0.0f, 1.0f},
-        (vec2s){1.0f, 1.0f},
-
-        (vec2s){0.0f, 0.0f},
-        (vec2s){1.0f, 1.0f},
-        (vec2s){1.0f, 0.0f},
     };
-
     // Retrieving the texture index of the rendered texture
     float tex_index = -1.0f;
     for(uint32_t i = 0; i < state.render.tex_count; i++) {
@@ -743,7 +753,7 @@ void image_render(vec2s pos, vec4s color, LfTexture tex) {
     glm_mat4_mul(translate,scale,transform);
 
     // Adding the vertices to the batch renderer
-    for(uint32_t i = 0; i < 6; i++) {
+    for(uint32_t i = 0; i < 4; i++) {
         vec4 result;
         glm_mat4_mulv(transform, state.render.vert_pos[i].raw, result);
         memcpy(state.render.verts[state.render.vert_count].pos, (vec2){result[0], result[1]}, sizeof(vec2));
@@ -752,6 +762,7 @@ void image_render(vec2s pos, vec4s color, LfTexture tex) {
         state.render.verts[state.render.vert_count].tex_index = tex_index;
         state.render.vert_count++;
     } 
+    state.render.index_count += 6;
 }
 
 int most_similar_vector_index(vec2s v, vec2s vectors[], int array_size) {
@@ -1066,31 +1077,27 @@ LfTextProps text_render(vec2s pos, const char* str, LfFont font, int32_t wrap_po
                 }
                 // Adding the vertices to the batch if rendering the text
                 if(!no_render) {
-                    vec2s texcoords[6] = {
+                    vec2s texcoords[4] = {
                         q.s0, q.t0, 
-                        q.s0, q.t1, 
+                        q.s1, q.t0, 
                         q.s1, q.t1, 
-
-                        q.s0, q.t0, 
-                        q.s1, q.t1, 
-                        q.s1, q.t0
+                        q.s0, q.t1
                     };
-                    for(uint32_t i = 0; i < 6; i++) {
-                        vec2s verts[6] = {
-                            (vec2s){q.x0, q.y0 + max_descended_char_height}, 
-                            (vec2s){q.x0, q.y1 + max_descended_char_height}, 
-                            (vec2s){q.x1, q.y1 + max_descended_char_height},
-
-                            (vec2s){q.x0, q.y0 + max_descended_char_height},
-                            (vec2s){q.x1, q.y1 + max_descended_char_height}, 
-                            (vec2s){q.x1, q.y0 + max_descended_char_height}
-                        }; 
+                    vec2s verts[4] = {
+                        (vec2s){q.x0, q.y0 + max_descended_char_height}, 
+                        (vec2s){q.x1, q.y0 + max_descended_char_height}, 
+                        (vec2s){q.x1, q.y1 + max_descended_char_height},
+                        (vec2s){q.x0, q.y1 + max_descended_char_height}
+                    }; 
+                    for(uint32_t i = 0; i < 4; i++) {
                         memcpy(state.render.verts[state.render.vert_count].pos, (vec2){verts[i].x, verts[i].y}, sizeof(vec2)); 
                         memcpy(state.render.verts[state.render.vert_count].color, (vec4){color.r, color.g, color.b, color.a}, sizeof(vec4));
                         memcpy(state.render.verts[state.render.vert_count].texcoord, (vec2){texcoords[i].x, texcoords[i].y}, sizeof(vec2));
                         state.render.verts[state.render.vert_count].tex_index = tex_index;
                         state.render.vert_count++;
                     }
+                    state.render.index_count += 6;
+
                 }
                 char_count++;
                 last_char_width = x - last_x;
@@ -1122,12 +1129,12 @@ void flush() {
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * state.render.vert_count, 
                     state.render.verts);
 
-    for(uint32_t i = 0; i < MAX_TEX_COUNT_BATCH; i++) {
+    for(uint32_t i = 0; i < state.render.tex_count; i++) {
         glBindTextureUnit(i, state.render.textures[i].id);
     }
 
     glBindVertexArray(state.render.vao);
-    glDrawArrays(GL_TRIANGLES, 0, state.render.vert_count);
+    glDrawElements(GL_TRIANGLES, state.render.index_count, GL_UNSIGNED_INT, NULL);
 
     state.render.vert_count = 0;
     state.render.tex_index = 0;
@@ -1626,4 +1633,25 @@ void lf_checkbox(const char* text, bool* val, uint32_t tex) {
     }
     state.pos_ptr.x += checkbox_size + margin_right;
     state.pos_ptr.y -= margin_top;
+}
+void lf_rect(float width, float height, vec4s color) {
+    float padding = state.theme.button_props.padding;
+    float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
+        margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom; 
+    float border_width = state.theme.button_props.border_width;
+
+    // If the rect does not fit onto the current div, advance to the next line
+    next_line_on_overflow(
+        (vec2s){width + padding * 2.0f + margin_right + margin_left + border_width * 2.0f, 
+                    height + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f});
+
+    // Advancing the position pointer by the margins
+    state.pos_ptr.x += margin_left + border_width;
+    state.pos_ptr.y += margin_top + border_width;
+
+    // Rendering the rect
+    rect_render(state.pos_ptr, (vec2s){width, height}, color);
+
+    state.pos_ptr.x += width + margin_right + padding * 2.0f + border_width;
+    state.pos_ptr.y -= margin_top + border_width;
 }
