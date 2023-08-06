@@ -1,5 +1,7 @@
 # Leif
 
+<img src="https://github.com/cococry/Leif/blob/main/branding/leif-branding.png" width="800"  /> 
+
 ## Overview
 Leif is a minimalist but yet powerfull
 and configurable immediate GUI library
