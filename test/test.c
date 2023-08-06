@@ -32,33 +32,51 @@ int main(int argc, char* argv[]) {
     lf_set_text_wrap(true);
     glfwSetFramebufferSizeCallback(window, resize_callback);
 
-    LfTexture tick = lf_tex_create("../test/textures/tick.png", false, LF_TEX_FILTER_LINEAR);    
-    LfTexture landscape = lf_tex_create("../test/textures/norway.jpg", false, LF_TEX_FILTER_LINEAR);    
-    float lastTime = 0.0f;
-    float deltaTime = 0.0f;
-
-    bool show_image = false;
+    LfTexture tick = lf_tex_create("../test/textures/tick.png", false, LF_TEX_FILTER_LINEAR);   
+    char buf_email[512] ={0};
+    LfInputField input_email = (LfInputField){.buf = buf_email, .width = 450, .selected = false, .placeholder = "Email..."};
+    char buf_password[512] ={0};
+    LfInputField input_password = (LfInputField){.buf = buf_password, .width = 450, .selected = false, .placeholder = "Password..."};
     bool show_text = false;
+
+    vec2s dim_password = lf_text_dimension("Password");
+
+    char submitted_password[512] = {0};
+    char submitted_email[512] = {0};
+    bool submitted = false;
     while(!glfwWindowShouldClose(window)) {
-        float currentTime = glfwGetTime();
-        deltaTime = currentTime - lastTime;
-        lastTime = currentTime;
-        glClear(GL_COLOR_BUFFER_BIT);
-        glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-        
-        lf_div_begin((LfVec2f){0, 0}, (LfVec2i){win_w, win_h});
-        if(lf_button("Close App") == LF_CLICKED) {
-            glfwSetWindowShouldClose(window, true);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+
+        lf_div_begin((vec2s){0, 0}, (vec2s){win_w, win_h}); 
+        lf_text("Email");
+        lf_set_ptr_x(dim_password.x + theme.text_props.margin_left + theme.text_props.margin_right);
+        lf_input_text(&input_email);
+        lf_set_item_color((vec4s){LF_RGBA(189, 34, 88, 255)});
+        lf_button_fixed("Clear", -1, theme.font.font_size);
+        lf_unset_item_color();
+
+        lf_next_line();
+
+        lf_text("Password");
+        lf_input_text(&input_password);
+        lf_set_item_color((vec4s){LF_RGBA(189, 34, 88, 255)});
+        lf_button_fixed("Clear", -1, theme.font.font_size);
+        lf_unset_item_color();
+
+        lf_next_line();
+        lf_set_ptr_x(dim_password.x + theme.text_props.margin_left + theme.text_props.margin_right);
+        lf_set_item_color((vec4s){LF_RGBA(34, 189, 88, 255)});
+        if(lf_button_fixed("Submit", 150,60) == LF_CLICKED) {
+            memcpy(submitted_password, buf_password, 512);
+            memcpy(submitted_email, buf_email, 512);
+            submitted = true;
         }
-        lf_checkbox("Show Image", &show_image, tick.id);
-        if(show_image) {
-            lf_next_line();
-            lf_image(landscape);
-            lf_next_line();
-            lf_checkbox("Show Text", &show_text, tick.id);
-            if(show_text)
-                lf_text("This is an image of the beautiful norway.\nIf you want to learn more about norway, check out https://www.lifeinnorway.net/norway-facts/");
+        lf_checkbox("Show text", &show_text, tick.id);
+        if(submitted && show_text){
+            lf_text("Hey there, you submitted a new user with the email %s and the password %s. Welcome!", submitted_email, submitted_password);
         }
+        lf_unset_item_color();
         lf_div_end();
 
         lf_update();
@@ -70,4 +88,4 @@ int main(int argc, char* argv[]) {
     glfwTerminate();
 
     return 0;
-}
+} 

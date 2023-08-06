@@ -4,5 +4,9 @@ if [ ! -d "../bin" ]; then
     mkdir ../bin
 fi
 ./build_deps.sh
+echo "[INFO] Building cglm"
+cd ../vendor/cglm
+./build.sh
+cd ../../scripts/
 echo "[INFO]: Building Leif (leif.c)"
 ./build_all.sh
