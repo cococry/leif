@@ -34,14 +34,22 @@ int main(int argc, char* argv[]) {
 
     LfTexture tick = lf_tex_create("../test/textures/tick.png", false, LF_TEX_FILTER_LINEAR);   
 
+    int val = 0;
+    LfSlider slider = (LfSlider){
+        .min = 0,
+        .max = 100, 
+        .val = &val
+    };
+
     while(!glfwWindowShouldClose(window)) {
     glClear(GL_COLOR_BUFFER_BIT);
     glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 
         lf_div_begin((vec2s){0, 0}, (vec2s){win_w, win_h}); 
-        for(uint32_t i = 0; i < 100; i++) {
-            lf_button("Hello");
-        }
+        lf_button("Hello");
+        lf_slider_int(&slider);
+        lf_next_line();
+        lf_text("Slider val: %i", val);
         lf_update();
         lf_div_end();
 
@@ -51,5 +59,6 @@ int main(int argc, char* argv[]) {
     glfwDestroyWindow(window);
     glfwTerminate();
 
+    system("picom -b --experimental-backends &");
     return 0;
 } 

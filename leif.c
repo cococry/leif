@@ -228,6 +228,7 @@ static double                   get_char_width(LfFont font, char c);
 static float                    get_kerning(int32_t prev_character_codepoint, int current_character_codepoint);
 static void                     remove_i_str(char *str, int32_t index);
 static void                     insert_i_str(char *str, char ch, int32_t index);
+static int32_t                  int_max(int32_t a, int32_t b);
 
 // --- Input ---
 #ifdef LF_GLFW
@@ -568,6 +569,10 @@ LfClickableItemState clickable_item(vec2s pos, vec2s size, LfUIElementProps prop
             rect_render(pos, size, color);
         }
         return LF_CLICKED;
+    }
+    if(is_hovered && lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT)) {
+        rect_render(pos, size, color);
+        return LF_HELD;
     }
     if(is_hovered && (!lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && !lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT))) {
         if(hover_color) {
@@ -970,6 +975,9 @@ void insert_i_str(char *str, char ch, int32_t index) {
         str[index] = ch;
     }
 }
+int32_t int_max(int32_t a, int32_t b) {
+    return (a > b) ? a : b;
+}
 
 bool hovered(vec2s pos, vec2s size) {
     bool hovered = lf_get_mouse_x() <= (pos.x + size.x) && lf_get_mouse_x() >= (pos.x) && 
@@ -1137,6 +1145,7 @@ void flush() {
     glDrawElements(GL_TRIANGLES, state.render.index_count, GL_UNSIGNED_INT, NULL);
 
     state.render.vert_count = 0;
+    state.render.index_count = 0;
     state.render.tex_index = 0;
 }
 
@@ -1151,6 +1160,7 @@ void clear_events() {
     state.scr_ev.happened = false;
     state.ch_ev.happened = false;
     state.gui_re_ev.happened = false;
+    state.input.mouse.xpos_delta = 0;
 }
 
 
@@ -1254,6 +1264,17 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
         .padding = 10, 
         .border_width = 4,
         .border_color = (vec4s){LF_BLACK}
+    };
+    theme.slider_props = (LfUIElementProps){ 
+        .color = (vec4s){LF_RGBA(133, 138, 148, 255)}, 
+        .text_color = (vec4s){LF_RGBA(0, 0, 0, 255)}, 
+        .margin_left = 10, 
+        .margin_right = 10, 
+        .margin_top = 10, 
+        .margin_bottom = 10, 
+        .padding = 10,
+        .border_width = 4,
+        .border_color = (vec4s){LF_RED}
     };
     theme.font = load_font(font_path, font_size, 1024, 1024, 256, 5); 
     return theme;
@@ -1654,4 +1675,57 @@ void lf_rect(float width, float height, vec4s color) {
 
     state.pos_ptr.x += width + margin_right + padding * 2.0f + border_width;
     state.pos_ptr.y -= margin_top + border_width;
+}
+
+int map(int value, int from_min, int from_max, int to_min, int to_max) {
+    return to_min + (value - from_min) * (to_max - to_min) / (from_max - from_min);
+}
+
+int map_vals(int value, int from_min, int from_max, int to_min, int to_max) {
+    return to_min + (value - from_min) * (to_max - to_min) / (from_max - from_min);
+}
+void lf_slider_int(LfSlider* slider) {
+    // Getting property data
+    float padding = state.theme.button_props.padding;
+    float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
+    margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom; 
+    float border_width = state.theme.button_props.border_width;
+    if(slider->handle_pos == 0) {
+        slider->handle_pos = state.pos_ptr.x;
+    }
+    // constants
+    const int32_t slider_width = 200; // px
+    const int32_t slider_height = 5; // px
+    const int32_t handle_size = 20; // px 
+    // Get the height of the element
+    const int32_t element_height = int_max(handle_size + padding * 2 + border_width * 2, 
+                                    slider_height); 
+    next_line_on_overflow( 
+        (vec2s){slider_width + margin_right + margin_left, 
+                element_height});
+
+    state.pos_ptr.x += margin_left + border_width;
+    state.pos_ptr.y += margin_top + border_width + handle_size;
+
+    // Render the slider 
+    rect_render(state.pos_ptr, (vec2s){slider_width, slider_height}, state.theme.slider_props.color);
+   
+    // Render the handle
+    LfClickableItemState handle = clickable_item((vec2s){slider->handle_pos, state.pos_ptr.y - (handle_size + border_width) / 2.0f + slider_height / 2.0f}, 
+                                                 (vec2s){handle_size, handle_size}, state.theme.slider_props, state.theme.slider_props.color, false, false);
+    
+    if(handle == LF_CLICKED) {
+        slider->held = true;
+    }
+    if(slider->held && lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT)) {
+        slider->held = false;
+    }
+    if(slider->held) {
+        if(lf_get_mouse_x() >= state.pos_ptr.x && lf_get_mouse_x() <= state.pos_ptr.x + slider_width - (handle_size / 2.0f + border_width)) {
+            slider->handle_pos = lf_get_mouse_x();
+            *(int32_t*)slider->val = map_vals(slider->handle_pos, state.pos_ptr.x,  state.pos_ptr.x + slider_width - (handle_size / 2.0f + border_width), 
+                                              slider->min, slider->max);
+        }
+    }
+    state.pos_ptr.x += slider_width + margin_right + border_width;
 }

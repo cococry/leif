@@ -44,10 +44,18 @@ typedef struct {
     bool selected;
 } LfInputField;
 
+typedef struct {
+    void* val;
+    int32_t handle_pos;
+    float min, max;
+    bool held;
+} LfSlider;
+
 typedef enum {
     LF_IDLE = 0,
-    LF_HOVERED = 1,
-    LF_CLICKED = 2
+    LF_CLICKED = 1, 
+    LF_HELD = 2,
+    LF_HOVERED = 3,
 } LfClickableItemState;
 
 typedef struct {
@@ -58,7 +66,7 @@ typedef struct {
 
 typedef struct {
     LfUIElementProps button_props, div_props, text_props, image_props, 
-                     inputfield_props, checkbox_props;
+                     inputfield_props, checkbox_props, slider_props;
     LfFont font;
 } LfTheme;
 
@@ -164,3 +172,5 @@ void lf_pop_font();
 void lf_checkbox(const char* text, bool* val, uint32_t tex);
 
 void lf_rect(float width, float height, vec4s color);
+
+void lf_slider_int(LfSlider* slider);
