@@ -3,7 +3,7 @@
 <img src="https://github.com/cococry/Leif/blob/main/branding/leif-branding.png" width="800"  /> 
 
 ## Overview
-Leif is a minimalist but yet powerfull
+Leif is a minimalist but yet powerful
 and configurable immediate GUI library
 written in C. Leif uses Modern OpenGL
 for rendering. It is a single file 
