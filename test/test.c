@@ -37,19 +37,30 @@ int main(int argc, char* argv[]) {
     int val = 0;
     LfSlider slider = (LfSlider){
         .min = 0,
-        .max = 100, 
+        .max = 10, 
         .val = &val
     };
+    int val2 = 0;
+    LfSlider slider2 = (LfSlider){
+        .min = 0,
+        .max = 10, 
+        .val = &val2
+    };
 
+       
     while(!glfwWindowShouldClose(window)) {
     glClear(GL_COLOR_BUFFER_BIT);
     glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 
         lf_div_begin((vec2s){0, 0}, (vec2s){win_w, win_h}); 
-        lf_button("Hello");
+        lf_button("Exit");
         lf_slider_int(&slider);
         lf_next_line();
         lf_text("Slider val: %i", val);
+        lf_next_line();
+        lf_slider_int(&slider2);
+        lf_next_line();
+        lf_text("Slider val: %i", val2);
         lf_update();
         lf_div_end();
 

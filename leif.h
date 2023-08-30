@@ -48,7 +48,7 @@ typedef struct {
     void* val;
     int32_t handle_pos;
     float min, max;
-    bool held;
+    bool held, selcted;
 } LfSlider;
 
 typedef enum {
