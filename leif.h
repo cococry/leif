@@ -52,17 +52,27 @@ typedef struct {
 } LfSlider;
 
 typedef enum {
+    LF_HOVERED = -1,
     LF_IDLE = 0,
     LF_CLICKED = 1, 
     LF_HELD = 2,
-    LF_HOVERED = 3,
 } LfClickableItemState;
 
 typedef struct {
-    vec4s color, text_color, border_color;
-    float padding, margin_left, margin_right, margin_top, margin_bottom;
+    vec4s color;
+    vec4s text_color;
+    vec4s border_color;
+    float padding;
+    float margin_left; 
+    float margin_right;
+    float margin_top; 
+    float margin_bottom;
     float border_width;
 } LfUIElementProps;
+
+typedef struct {
+    vec2s pos, size;
+} LfAABB;
 
 typedef struct {
     LfUIElementProps button_props, div_props, text_props, image_props, 
@@ -174,3 +184,15 @@ void lf_checkbox(const char* text, bool* val, uint32_t tex);
 void lf_rect(float width, float height, vec4s color);
 
 void lf_slider_int(LfSlider* slider);
+
+
+LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap_point, 
+        int32_t stop_point, int32_t start_point, bool no_render, vec4s color);
+
+void lf_rect_render(vec2s pos, vec2s size, vec4s color);
+
+void lf_image_render(vec2s pos, vec4s color, LfTexture tex);
+
+bool lf_point_intersects_aabb(vec2s p, LfAABB aabb);
+
+bool lf_aabb_intersects_aabb(LfAABB a, LfAABB b);
