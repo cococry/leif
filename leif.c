@@ -76,14 +76,19 @@ typedef struct {
 
 typedef struct {
     vec2 pos; // 8 Bytes
+    vec4 border_color; // 16 Bytes
+    float border_width; // 4 Bytes 
     vec4 color; // 16 Bytes
     vec2 texcoord; // 8 Bytes
     float tex_index; // 4 Bytes
-} Vertex; // 36 Bytes per vertex
+    vec2 scale;
+    vec2 pos_px;
+    float corner_radius;
+} Vertex; // 72 Bytes per vertex
 
 typedef struct {
     LfAABB aabb;
-    bool init, init_size;
+    bool init;
     LfClickableItemState interact_state;
 } LfDiv;
 
@@ -126,36 +131,6 @@ typedef struct {
     uint32_t tex_index, tex_count,index_count;
 } RenderState;
 
-// --- Events ---
-typedef struct {
-    int32_t keycode;
-    bool happened, pressed;
-} KeyEvent;
-
-typedef struct {
-    int32_t button_code;
-    bool happened, pressed;
-} MouseButtonEvent;
-
-typedef struct {
-    int32_t x, y;
-    bool happened;
-} CursorPosEvent;
-
-typedef struct {
-    int32_t xoffset, yoffset;
-    bool happened;
-} ScrollEvent;
-
-typedef struct {
-    int32_t charcode;
-    bool happened;
-} CharEvent;
-
-typedef struct {
-    bool happened;
-} GuiReEstablishEvent;
-
 typedef struct {
     bool init;
     bool text_wrap;
@@ -174,17 +149,20 @@ typedef struct {
 
 
     // Pushable variables
-    vec4s item_color_stack;
-    vec4s text_color_stack;
     LfFont* font_stack;
+    LfUIElementProps props_stack;
+    bool props_on_stack;
+    int32_t text_start_x_stack, text_stop_x_stack, 
+        text_start_y_stack, text_stop_y_stack;
 
     // Event references 
-    KeyEvent key_ev;
-    MouseButtonEvent mb_ev;
-    CursorPosEvent cp_ev;
-    ScrollEvent scr_ev;
-    CharEvent ch_ev;
-    GuiReEstablishEvent gui_re_ev;
+    LfKeyEvent key_ev;
+    LfMouseButtonEvent mb_ev;
+    LfCursorPosEvent cp_ev;
+    LfScrollEvent scr_ev;
+    LfCharEvent ch_ev;
+    LfGuiReEstablishEvent gui_re_ev;
+
 } LfState;
 
 typedef enum {
@@ -200,17 +178,17 @@ static LfState state;
 static uint32_t                 shader_create(GLenum type, const char* src);
 static LfShader                 shader_prg_create(const char* vert_src, const char* frag_src);
 static void                     shader_set_mat(LfShader prg, const char* name, mat4 mat); 
+static void                     set_projection_matrix();
 
 static void                     renderer_init();
-static void                     flush();
 
 static LfTexture                tex_create(const char* filepath, bool flip, LfTextureFiltering filter);
 
 // --- UI ---
 static LfClickableItemState     clickable_item(vec2s pos, vec2s size, LfUIElementProps props, vec4s color, float border_width, bool click_color, bool hover_color);
+static LfTextProps              text_render_simple(vec2s pos, const char* text, LfFont font, vec4s font_color, bool no_render);
 static void                     input_field(LfInputField* input, InputFieldType type);
 LfFont                          load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
-static bool                     hovered(vec2s pos, vec2s size);
 static void                     next_line_on_overflow(vec2s size);
 
 // Utility
@@ -289,6 +267,38 @@ LfShader shader_prg_create(const char* vert_src, const char* frag_src) {
 }
 
 
+char *readFile(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        fprintf(stderr, "Could not open file %s\n", filename);
+        return NULL;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    rewind(file);
+
+    char *buffer = (char *)malloc(file_size * sizeof(char) + 1);
+    if (buffer == NULL) {
+        fprintf(stderr, "Memory allocation failed");
+        fclose(file);
+        return NULL;
+    }
+
+    size_t result = fread(buffer, 1, file_size, file);
+    if (result != file_size) {
+        fprintf(stderr, "Reading file failed");
+        free(buffer);
+        fclose(file);
+        return NULL;
+    }
+
+    buffer[file_size] = '\0'; // Null-terminate the string
+    fclose(file);
+    return buffer;
+}
+
+
 void renderer_init() {
     // OpenGL Setup 
     glEnable(GL_BLEND);
@@ -328,45 +338,132 @@ void renderer_init() {
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), NULL);
     glEnableVertexAttribArray(0);
     
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t)offsetof(Vertex, color));
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t)offsetof(Vertex, border_color));
     glEnableVertexAttribArray(1);
     
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)offsetof(Vertex, texcoord));
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t)offsetof(Vertex, border_width));
     glEnableVertexAttribArray(2);
 
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)offsetof(Vertex, tex_index));
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t)offsetof(Vertex, color));
     glEnableVertexAttribArray(3);
+    
+    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)offsetof(Vertex, texcoord));
+    glEnableVertexAttribArray(4);
 
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)offsetof(Vertex, tex_index));
+    glEnableVertexAttribArray(5);
+
+    glVertexAttribPointer(6, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)offsetof(Vertex, scale));
+    glEnableVertexAttribArray(6);
+
+    glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)offsetof(Vertex, pos_px));
+    glEnableVertexAttribArray(7);
+
+    glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(intptr_t*)offsetof(Vertex, corner_radius));
+    glEnableVertexAttribArray(8);
     // Creating the shader for the batch renderer
     const char* vert_src =
-        "#version 460 core\n"
+        "#version 330 core\n"
         "layout (location = 0) in vec2 a_pos;\n"
-        "layout (location = 1) in vec4 a_color;\n"
-        "layout (location = 2) in vec2 a_texcoord;\n"
-        "layout (location = 3) in float a_tex_index;\n"
+        "layout (location = 1) in vec4 a_border_color;\n"
+        "layout (location = 2) in float a_border_width;\n"
+        "layout (location = 3) in vec4 a_color;\n"
+        "layout (location = 4) in vec2 a_texcoord;\n"
+        "layout (location = 5) in float a_tex_index;\n"
+        "layout (location = 6) in vec2 a_scale;\n"
+        "layout (location = 7) in vec2 a_pos_px;\n"
+        "layout (location = 8) in float a_corner_radius;\n"
+
         "uniform mat4 u_proj;\n"
+        "out vec4 v_border_color;\n"
+        "out float v_border_width;\n"
         "out vec4 v_color;\n"
         "out vec2 v_texcoord;\n"
         "out float v_tex_index;\n"
+        "flat out vec2 v_scale;\n"
+        "flat out vec2 v_pos_px;\n"
+        "out float v_corner_radius;\n"
+
         "void main() {\n"
             "v_color = a_color;\n"
             "v_texcoord = a_texcoord;\n"
             "v_tex_index = a_tex_index;\n"
+            "v_border_color = a_border_color;\n"
+            "v_border_width = a_border_width;\n"
+            "v_scale = a_scale;\n"
+            "v_pos_px = a_pos_px;\n"
+            "v_corner_radius = a_corner_radius;\n"
             "gl_Position = u_proj * vec4(a_pos.x, a_pos.y, 0.0f, 1.0);\n"
         "}\n";
 
-    const char* frag_src =
-        "#version 460 core\n"
+
+    const char* frag_src = "#version 330 core\n"
         "out vec4 o_color;\n"
         "in vec4 v_color;\n"
-        "in vec2 v_texcoord;\n"
         "in float v_tex_index;\n"
+        "in vec4 v_border_color;\n"
+        "in float v_border_width;\n"
+        "in vec2 v_texcoord;\n"
+        "flat in vec2 v_scale;\n"
+        "flat in vec2 v_pos_px;\n"
+        "in float v_corner_radius;\n"
         "uniform sampler2D u_textures[32];\n"
+        "uniform vec2 u_screen_size;\n"
+
+        "float rounded_box_sdf(vec2 center_pos, vec2 size, float radius) {\n"
+        "    return length(max(abs(center_pos)-size+radius,0.0))-radius;\n"
+        "}\n"
+
         "void main() {\n"
-        "   if(v_tex_index == -1) {\n"
-        "     o_color = v_color;\n"
+        "    vec2 size = v_scale;\n"
+        "    vec4 opaque_color, display_color;\n"
+        "    if(v_tex_index == -1) {\n"
+        "        opaque_color = v_color;\n"
+        "    } else {\n"
+        "        opaque_color = texture(u_textures[int(v_tex_index)], v_texcoord) * v_color;\n"
+        "    }\n"
+        "   if(v_corner_radius != 0.0f) {"
+        "        display_color = opaque_color;\n"
+
+        "        vec2 location = vec2(v_pos_px.x, -v_pos_px.y);\n"
+        "        location.y += u_screen_size.y - size.y;\n"
+
+        "        float edge_softness = 1.0f;\n"
+
+        "        float radius = v_corner_radius * 2.0f;\n"
+
+        "        float distance = rounded_box_sdf(gl_FragCoord.xy - location - (size/2.0f), size / 2.0f, radius);\n"
+
+        "        float smoothed_alpha = 1.0f-smoothstep(0.0f, edge_softness * 2.0f,distance);\n"
+
+
+        "        vec3 fill_color;\n"
+        "        if(v_border_width != 0.0f) {\n"
+        "            vec2 location_border = vec2(location.x + v_border_width, location.y + v_border_width);\n"
+        "            vec2 size_border = vec2(size.x - v_border_width * 2, size.y - v_border_width * 2);\n"
+        "            float distance_border = rounded_box_sdf(gl_FragCoord.xy - location_border - (size_border / 2.0f), size_border / 2.0f, radius);\n"
+        "            if(distance_border <= 0.0f) {\n"
+        "                fill_color = display_color.xyz;\n"
+        "            } else {\n"
+        "                fill_color = v_border_color.xyz;\n"
+        "            }\n"
+        "        } else {\n"
+        "            fill_color = display_color.xyz;\n"
+        "        }\n"
+        "        o_color =  mix(vec4(0.0f, 0.0f, 0.0f, 0.0f), vec4(fill_color, smoothed_alpha), smoothed_alpha);\n"
         "   } else {\n"
-        "     o_color = texture(u_textures[int(v_tex_index)], v_texcoord) * v_color;\n"
+        "     vec4 fill_color = opaque_color;\n"
+        "     if(v_border_width != 0.0f) {\n"
+        "         vec2 location = vec2(v_pos_px.x, -v_pos_px.y);\n"
+        "         location.y += u_screen_size.y - size.y;\n"
+        "         vec2 location_border = vec2(location.x + v_border_width, location.y + v_border_width);\n"
+        "         vec2 size_border = vec2(v_scale.x - v_border_width * 2, v_scale.y - v_border_width * 2);\n"
+        "         float distance_border = rounded_box_sdf(gl_FragCoord.xy - location_border - (size_border / 2.0f), size_border / 2.0f, v_corner_radius);\n"
+        "         if(distance_border > 0.0f) {\n"
+        "             fill_color = v_border_color;\n"
+                "}\n"
+        "     }\n"
+        "     o_color = fill_color;\n"
         "   }\n"
         "}\n";
     state.render.shader = shader_prg_create(vert_src, frag_src);
@@ -377,32 +474,14 @@ void renderer_init() {
     state.render.vert_pos[2] = (vec4s){0.5f, 0.5f, 0.0f, 1.0f};
     state.render.vert_pos[3] = (vec4s){-0.5f, 0.5f, 0.0f, 1.0f};
 
-    
-    // Setting projection matrix for the shader
-    glUseProgram(state.render.shader.id);
-    mat4 proj;
-    float left = 0.0f;
-    float right = state.dsp_w;
-    float bottom = state.dsp_h;
-    float top = 0.0f;
-    float near = 0.1f;
-    float far = 100.0f;
-
-    // Create the orthographic projection matrix
-    mat4 orthoMatrix = GLM_MAT4_IDENTITY_INIT;
-    orthoMatrix[0][0] = 2.0f / (right - left);
-    orthoMatrix[1][1] = 2.0f / (top - bottom);
-    orthoMatrix[2][2] = -1;
-    orthoMatrix[3][0] = -(right + left) / (right - left);
-    orthoMatrix[3][1] = -(top + bottom) / (top - bottom);
-
-    shader_set_mat(state.render.shader, "u_proj", orthoMatrix);
 
     // Populating the textures array in the shader with texture ids
     int32_t tex_slots[MAX_TEX_COUNT_BATCH];
     for(uint32_t i = 0; i < MAX_TEX_COUNT_BATCH; i++) 
         tex_slots[i] = i;
 
+    glUseProgram(state.render.shader.id);
+    set_projection_matrix();
     glUniform1iv(glGetUniformLocation(state.render.shader.id, "u_textures"), MAX_TEX_COUNT_BATCH, tex_slots);
 }
 void shader_set_mat(LfShader prg, const char* name, mat4 mat) {
@@ -543,10 +622,11 @@ LfClickableItemState clickable_item(vec2s pos, vec2s size, LfUIElementProps prop
         return LF_IDLE;
     }
     /* Rendering a rect with the given proportions with different color based on if it is hoverd, clicked or idle */
-    bool is_hovered = hovered(pos, size);
-    lf_rect_render((vec2s){pos.x - border_width, pos.y - border_width}, 
-                (vec2s){size.x + border_width * 2.0f, size.y + border_width * 2.0f}, 
-                props.border_color);
+    bool is_hovered = lf_hovered(pos, size);
+    if(is_hovered && lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT)) {
+        lf_rect_render(pos, size, color, props.border_color, border_width, props.corner_radius);
+        return LF_RELEASED;
+    }
     if(is_hovered && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT)) {
         if(click_color) {
             // Click color is 40 lighter than the base color for every value
@@ -561,14 +641,14 @@ LfClickableItemState clickable_item(vec2s pos, vec2s size, LfUIElementProps prop
                 click_color.b = 1.0;
             if(click_color.a > 1.0)
                 click_color.a = 1.0;
-            lf_rect_render(pos, size, click_color);
+            lf_rect_render(pos, size, click_color, props.border_color, border_width, props.corner_radius);
         } else {
-            lf_rect_render(pos, size, color);
+            lf_rect_render(pos, size, color, props.border_color, border_width, props.corner_radius);
         }
         return LF_CLICKED;
     }
     if(is_hovered && lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT)) {
-        lf_rect_render(pos, size, color);
+        lf_rect_render(pos, size, color, props.border_color, border_width, props.corner_radius);
         return LF_HELD;
     }
     if(is_hovered && (!lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && !lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT))) {
@@ -585,15 +665,18 @@ LfClickableItemState clickable_item(vec2s pos, vec2s size, LfUIElementProps prop
                 hover_color.b = 1.0;
             if(hover_color.a > 1.0)
                 hover_color.a = 1.0;
-            lf_rect_render(pos, size, hover_color);
+            lf_rect_render(pos, size, hover_color, props.border_color, border_width, props.corner_radius);
         } else {
-            lf_rect_render(pos, size, color);
+            lf_rect_render(pos, size, color, props.border_color, border_width, props.corner_radius);
         }
         return LF_HOVERED;
     }
     // Rendering with base color if idle
-    lf_rect_render(pos, size, color);
+    lf_rect_render(pos, size, color, props.border_color, border_width, props.corner_radius);
     return LF_IDLE;
+}
+LfTextProps text_render_simple(vec2s pos, const char* text, LfFont font, vec4s font_color, bool no_render) {
+    return lf_text_render(pos, text, font, -1, -1, -1, -1, -1, no_render, font_color);
 }
 
 #ifdef LF_GLFW
@@ -672,7 +755,7 @@ void glfw_cursor_callback(GLFWwindow* window, double xpos, double ypos) {
     state.input.mouse.ypos_last = ypos;
 
     // Calling User defined callbacks
-    for(uint32_t i = 0; i< state.input.cursor_pos_cb_count; i++) {
+    for(uint32_t i = 0; i < state.input.cursor_pos_cb_count; i++) {
         state.input.cursor_pos_cbs[i](window, xpos, ypos);
     }
 
@@ -688,32 +771,47 @@ void glfw_char_callback(GLFWwindow* window, uint32_t charcode) {
 }
 #endif
 
-void lf_rect_render(vec2s pos, vec2s size, vec4s color) {
+void lf_rect_render(vec2s pos, vec2s size, vec4s color, vec4s border_color, float border_width, float corner_radius) {
     // Offsetting the postion, so that pos is the top left of the rendered object
+    vec2s pos_initial = pos;
     pos = (vec2s){pos.x + size.x / 2.0f, pos.y + size.y / 2.0f};
 
     // Initializing texture coords data
     vec2s texcoords[4] = {
+        (vec2s){1.0f, 1.0f},
+        (vec2s){1.0f, 0.0f},
         (vec2s){0.0f, 0.0f},
-        (vec2s){1.0f, 1.0f},
-        (vec2s){1.0f, 1.0f},
         (vec2s){0.0f, 1.0f},
     };
     // Calculating the transform matrix
     mat4 translate; 
     mat4 scale;
     mat4 transform;
-    vec3 pos_xyz = {pos.x, pos.y, 0.0f};
-    vec3 size_xyz = {size.x, size.y, 0.0f};
+    vec3 pos_xyz = {(corner_radius != 0.0f ? (float)state.dsp_w / 2.0f : pos.x), (corner_radius != 0.0f ? (float)state.dsp_h / 2.0f : pos.y), 0.0f};
+    vec3 size_xyz = {corner_radius != 0.0f ? state.dsp_w : size.x, corner_radius != 0.0f ? state.dsp_h : size.y, 0.0f};
     glm_translate_make(translate, pos_xyz);
     glm_scale_make(scale, size_xyz);
     glm_mat4_mul(translate,scale,transform);
-
+    
     // Adding the vertices to the batch renderer
     for(uint32_t i = 0; i < 4; i++) {
+        if(state.render.vert_count >= MAX_RENDER_BATCH) {
+            lf_flush();
+            lf_renderer_begin();
+        }
         vec4 result;
         glm_mat4_mulv(transform, state.render.vert_pos[i].raw, result);
-        memcpy(state.render.verts[state.render.vert_count].pos, result, sizeof(vec2));
+        state.render.verts[state.render.vert_count].pos[0] = result[0];
+        state.render.verts[state.render.vert_count].pos[1] = result[1];
+        vec4 border_color_arr;
+        border_color_arr[0] = border_color.x;
+        border_color_arr[1] = border_color.y;
+        border_color_arr[2] = border_color.z;
+        border_color_arr[3] = border_color.w;
+        memcpy(state.render.verts[state.render.vert_count].border_color, border_color_arr, sizeof(vec4));
+
+        state.render.verts[state.render.vert_count].border_width = border_width; 
+
         vec4 color_arr;
         color_arr[0] = color.r;
         color_arr[1] = color.g;
@@ -725,12 +823,24 @@ void lf_rect_render(vec2s pos, vec2s size, vec4s color) {
         texcoord_arr[1] = texcoords[i].y;
         memcpy(state.render.verts[state.render.vert_count].texcoord, texcoord_arr, sizeof(vec2));
         state.render.verts[state.render.vert_count].tex_index = -1;
+
+        vec2 scale_arr;
+        scale_arr[0] = size.x;
+        scale_arr[1] = size.y;
+        memcpy(state.render.verts[state.render.vert_count].scale, scale_arr, sizeof(vec2));
+
+        vec2 pos_px_arr;
+        pos_px_arr[0] = (float)pos_initial.x;
+        pos_px_arr[1] = (float)pos_initial.y;
+        memcpy(state.render.verts[state.render.vert_count].pos_px, pos_px_arr, sizeof(vec2));
+
+        state.render.verts[state.render.vert_count].corner_radius = corner_radius;
         state.render.vert_count++;
     }
     state.render.index_count += 6;
 }
 
-void lf_image_render(vec2s pos, vec4s color, LfTexture tex) {
+void lf_image_render(vec2s pos, vec4s color, LfTexture tex, vec4s border_color, float border_width, float corner_radius) {
     // Offsetting the postion, so that pos is the top left of the rendered object
     pos = (vec2s){pos.x + tex.width / 2.0f, pos.y + tex.height / 2.0f};
 
@@ -769,60 +879,75 @@ void lf_image_render(vec2s pos, vec4s color, LfTexture tex) {
 
     // Adding the vertices to the batch renderer
     for(uint32_t i = 0; i < 4; i++) {
+        if(state.render.vert_count >= MAX_RENDER_BATCH) {
+            lf_flush();
+            lf_renderer_begin();
+        }
         vec4 result;
         glm_mat4_mulv(transform, state.render.vert_pos[i].raw, result);
         memcpy(state.render.verts[state.render.vert_count].pos, result, sizeof(vec2));
+        vec4 border_color_arr;
+        border_color_arr[0] = border_color.x;
+        border_color_arr[1] = border_color.y;
+        border_color_arr[2] = border_color.z;
+        border_color_arr[3] = border_color.w;
+        memcpy(state.render.verts[state.render.vert_count].border_color, border_color_arr, sizeof(vec4));
+
+        state.render.verts[state.render.vert_count].border_width = border_width; 
+
         vec4 color_arr;
         color_arr[0] = color.r;
         color_arr[1] = color.g;
         color_arr[2] = color.b;
         color_arr[3] = color.a;
         memcpy(state.render.verts[state.render.vert_count].color, color_arr, sizeof(vec4));
+
         vec2 texcoord_arr;
         texcoord_arr[0] = texcoords[i].x;
         texcoord_arr[1] = texcoords[i].y;
         memcpy(state.render.verts[state.render.vert_count].texcoord, texcoord_arr, sizeof(vec2));
+
         state.render.verts[state.render.vert_count].tex_index = tex_index;
+
+        vec2 scale_arr;
+        scale_arr[0] = (float)tex.width;
+        scale_arr[1] = (float)tex.height;
+        memcpy(state.render.verts[state.render.vert_count].scale, scale_arr, sizeof(vec2));
+
+        vec2 pos_px_arr;
+        pos_px_arr[0] = (float)pos.y;
+        pos_px_arr[1] = (float)pos.x;
+        memcpy(state.render.verts[state.render.vert_count].pos_px, pos_px_arr, sizeof(vec2));
+
+        state.render.verts[state.render.vert_count].corner_radius = corner_radius;
+
         state.render.vert_count++;
     } 
     state.render.index_count += 6;
 }
 
-int most_similar_vector_index(vec2s v, vec2s vectors[], int array_size) {
-    float min_distance = INFINITY;
-    int most_similar_index = -1;
-
-    for (int i = 0; i < array_size; i++) {
-        float distance = glm_vec2_distance(v.raw, vectors[i].raw);
-        if (distance < min_distance) {
-            min_distance = distance;
-            most_similar_index = i;
-        }
-    }
-    return most_similar_index;
-}
 void input_field(LfInputField* input, InputFieldType type) {
     if(!input->buf) return;
     // Getting the property data of the input field
-    float padding = state.theme.inputfield_props.padding;
-    float margin_left = state.theme.inputfield_props.margin_left;
-    float margin_right = state.theme.inputfield_props.margin_right;
-    float margin_top = state.theme.inputfield_props.margin_top;
-    float margin_bottom = state.theme.inputfield_props.margin_bottom;
-    float border_width = state.theme.inputfield_props.border_width;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.inputfield_props;
+    float padding = props.padding;
+    float margin_left = props.margin_left;
+    float margin_right = props.margin_right;
+    float margin_top = props.margin_top;
+    float margin_bottom = props.margin_bottom;
 
-    vec4s color = state.item_color_stack.a != -1 ? state.item_color_stack : state.theme.inputfield_props.color;
-    vec4s text_color = state.text_color_stack.a != -1 ? state.text_color_stack : state.theme.inputfield_props.text_color;
+    vec4s color = props.color;
+    vec4s text_color = props.text_color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
 
     // If the object cannot be fully rendered on the current line, advance one line down
     next_line_on_overflow(
-        (vec2s){input->width + padding * 2.0f + margin_left + margin_right + border_width * 2.0f, 
-                    input->height + padding * 2.0f + margin_top + margin_bottom + border_width * 2.0f} 
+        (vec2s){input->width + padding * 2.0f + margin_left + margin_right, 
+                    input->height + padding * 2.0f + margin_top + margin_bottom} 
     );
     // Adding the margins to the position pointer
-    state.pos_ptr.x += margin_left + border_width;
-    state.pos_ptr.y += margin_top + border_width;
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top;
     if(input->selected) {
         // Handeling key input of the inputfiled
         if(lf_key_went_down(GLFW_KEY_BACKSPACE)) {
@@ -870,21 +995,12 @@ void input_field(LfInputField* input, InputFieldType type) {
         }
     }
 
-    LfTextProps text_props_post_input = lf_text_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, 
-                                                    input->buf, font, input->width + padding, -1, -1, true, text_color);
+    LfTextProps text_props_post_input = text_render_simple((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y}, input->buf, font, text_color, true);
     // Rendering the input field
-    float height;
-    if(input->start_height >= get_max_char_height_font(font) && input->start_height != 0) {
-        height = input->start_height + padding * 2.0f;
-        if(text_props_post_input.height > input->start_height) {
-            height = text_props_post_input.height + padding * 2.0f + get_max_char_height_font(font);
-        }
-    } else {
-        height = text_props_post_input.height + padding * 3.0f; 
-    }
+    int32_t width = text_props_post_input.width > input->width ? text_props_post_input.width : input->width;
     LfClickableItemState item = clickable_item(state.pos_ptr, 
-                                               (vec2s){input->width + padding * 2.0f, height},
-                                                state.theme.inputfield_props, color, border_width, false,false); 
+                                               (vec2s){width + padding * 2.0f, text_props_post_input.height + padding * 2.0f},
+                                                props, color, props.border_width, false, false); 
 
     // Handeling selecting the input field
     if(item == LF_CLICKED && !input->selected) {
@@ -895,9 +1011,7 @@ void input_field(LfInputField* input, InputFieldType type) {
     }
 
     // Rendering the text in the input field
-    LfTextProps text_props_rendered = lf_text_render((vec2s){(state.pos_ptr.x + padding),
-        state.pos_ptr.y + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, input->buf, 
-                                                     font, input->width + padding, -1, -1, false, text_color);
+    LfTextProps text_props_rendered = text_render_simple((vec2s){(state.pos_ptr.x + padding),state.pos_ptr.y + padding}, input->buf, font, text_color, false);
         
     // Handleing the cursor indicator
     if(input->selected) {
@@ -908,48 +1022,23 @@ void input_field(LfInputField* input, InputFieldType type) {
         }
         cursor_slice[input->cursor_index] = '\0';
 
-        LfTextProps cursor_pos_props = lf_text_render((vec2s){(float)text_props_rendered.start_x, 
-            state.pos_ptr.y + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, cursor_slice, 
-                                                      font, input->width + padding, -1, -1, true, text_color);
+        LfTextProps cursor_pos_props = text_render_simple((vec2s){(float)text_props_rendered.start_x, 
+            state.pos_ptr.y + padding + font.font_size / 2.0f - get_max_char_height_font(font) / 2.0f}, cursor_slice, 
+                                                      font, text_color, true);
         
-        // Recalculating the positions of the characters when a character was added or the gui reestablished
-        if(state.ch_ev.happened || state.gui_re_ev.happened) {
-            char text_buf[strlen(input->buf)];
-            memset(text_buf, 0, sizeof(text_buf));
-            for(uint32_t i = 0; i < strlen(input->buf); i++) {
-                LfTextProps text_props = lf_text_render((vec2s){(state.pos_ptr.x + padding),
-                    state.pos_ptr.y + padding}, text_buf, font, input->width + padding, -1, -1, true, text_color);
-                input->char_positions[i].x = text_props.end_x;
-                input->char_positions[i].y = text_props.height + state.pos_ptr.y;
-                int32_t len = strlen(text_buf);
-                text_buf[len] = input->buf[i];
-                text_buf[len + 1] = '\0';
-            }
-        }
         // Rendering the cursor indicator
         lf_rect_render((vec2s){(strlen(input->buf) != 0) ? cursor_pos_props.end_x : state.pos_ptr.x + padding, 
-                    state.pos_ptr.y + cursor_pos_props.height - padding}, 
-                    (vec2s){1, (float)state.theme.font.font_size}, state.theme.inputfield_props.text_color);
+                    state.pos_ptr.y + padding}, 
+                    (vec2s){1, (float)text_props_post_input.height}, props.text_color, (vec4s){0.0f, 0.0f, 0.0f, 0.0f}, 0.0f, 0);
     } else if(!input->selected && strlen(input->buf) == 0) {
         // Rendering the placeholder
-        lf_text_render((vec2s){(state.pos_ptr.x + padding),
-        state.pos_ptr.y + padding + state.theme.font.font_size / 2.0f - get_max_char_height_font(state.theme.font) / 2.0f}, 
-                    !input->placeholder ? "Type..." : input->placeholder, font, -1, -1, -1, false, text_color); 
+        text_render_simple((vec2s){(state.pos_ptr.x + padding),
+        state.pos_ptr.y + padding}, 
+                    !input->placeholder ? "Type..." : input->placeholder, font, text_color, false); 
     }
-    if(item == LF_CLICKED) {
-        if(strlen(input->buf) <=0) {
-            input->cursor_index = strlen(input->buf);
-        } else { 
-            input->cursor_index = most_similar_vector_index((vec2s){(float)lf_get_mouse_x(), (float)lf_get_mouse_y()}, 
-                                                                input->char_positions, strlen(input->buf));
-            if(input->cursor_index == (int32_t)strlen(input->buf) - 1) {
-                input->cursor_index++;
-            }
-        }
-    } 
     // Advancing the position pointer by the size of the inputf ield
-    state.pos_ptr.x += input->width + margin_right + padding * 2.0f + border_width;
-    state.pos_ptr.y -= margin_top + border_width;
+    state.pos_ptr.x += width + margin_right + padding * 2.0f;
+    state.pos_ptr.y -= margin_top;
 
     // Setting the value pointer 
     if(type == INPUT_FLOAT)
@@ -957,12 +1046,18 @@ void input_field(LfInputField* input, InputFieldType type) {
     else if(type == INPUT_INT)
         *(int32_t*)input->val = atoi(input->buf);
     input->height = text_props_post_input.height;
+    if(input->width > input->initial_width) {
+        input->width = width;
+    } else {
+        input->width = input->initial_width;
+    }
 }
 
 
 float get_kerning(int32_t prev_character_codepoint, int current_character_codepoint) {
-    float scale = stbtt_ScaleForPixelHeight((stbtt_fontinfo*)state.theme.font.font_info, state.theme.font.font_size);
-    int32_t kern_advance = stbtt_GetCodepointKernAdvance((stbtt_fontinfo*)state.theme.font.font_info, prev_character_codepoint, current_character_codepoint);
+    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+    float scale = stbtt_ScaleForPixelHeight((stbtt_fontinfo*)font.font_info, font.font_size);
+    int32_t kern_advance = stbtt_GetCodepointKernAdvance((stbtt_fontinfo*)font.font_info, prev_character_codepoint, current_character_codepoint);
     float kerning = kern_advance * scale;
     return kerning;
 }
@@ -996,7 +1091,7 @@ int32_t int_max(int32_t a, int32_t b) {
     return (a > b) ? a : b;
 }
 
-bool hovered(vec2s pos, vec2s size) {
+bool lf_hovered(vec2s pos, vec2s size) {
     bool hovered = lf_get_mouse_x() <= (pos.x + size.x) && lf_get_mouse_x() >= (pos.x) && 
         lf_get_mouse_y() <= (pos.y + size.y) && lf_get_mouse_y() >= (pos.y);
     return hovered;
@@ -1024,8 +1119,20 @@ int32_t closes_num_in_arr(int arr[], int n, int target) {
     }
     return closest;
 }
-LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap_point, int32_t stop_point, int32_t start_point, bool no_render, 
+LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap_point, int32_t stop_point_x, int32_t start_point_x, int32_t stop_point_y, int32_t start_point_y, bool no_render, 
                         vec4s color) {
+    if(state.text_start_x_stack != -2) {
+        start_point_x = state.text_start_x_stack;
+    }
+    if(state.text_stop_x_stack != -2) {
+        stop_point_x = state.text_stop_x_stack;
+    }
+    if(state.text_start_y_stack != -2) {
+        start_point_y = state.text_start_y_stack;
+    }
+    if(state.text_stop_y_stack != -2) {
+        stop_point_y = state.text_stop_y_stack;
+    }
     // Retrieving the texture index
     float tex_index = -1.0f;
     if(!no_render) {
@@ -1059,7 +1166,7 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
     int32_t height = get_max_char_height_font(font);
     float width = 0;
     int32_t char_count = 0;
-
+    
     while(*str) { 
         bool skip = false;
         // If the current character is a new line or the wrap point has been reached, advance to the next line
@@ -1082,7 +1189,7 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
             stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
 
             // Return if reached stop
-            if(x - pos.x > stop_point && stop_point != -1) {
+            if((x - pos.x > stop_point_x && stop_point_x != -1) || (y > stop_point_y && stop_point_y != -1)) {
                 reached_stop = true;
                 if(x - pos.x > width) {
                     width = x - pos.x;
@@ -1094,7 +1201,7 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
                 ret.end_x = x;
                 return ret;
             }
-            if((start_point != -1 && x >= start_point) || start_point == -1)  {
+            if(((start_point_x != -1 && x >= start_point_x) || start_point_x == -1) && ((start_point_y != -1 && y + pos.y >= start_point_y) || start_point_y == -1))  {
                 if(first_char_width == -1) { 
                     first_char_width = x - last_x;
                     first_char_index = i; 
@@ -1115,10 +1222,19 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
                         (vec2s){q.x0, q.y1 + max_descended_char_height}
                     }; 
                     for(uint32_t i = 0; i < 4; i++) {
+                        if(state.render.vert_count >= MAX_RENDER_BATCH) {
+                            lf_flush();
+                            lf_renderer_begin();
+                        }
                         vec2 verts_arr;
                         verts_arr[0] = verts[i].x;
                         verts_arr[1] = verts[i].y;
                         memcpy(state.render.verts[state.render.vert_count].pos, verts_arr, sizeof(vec2));
+
+                        vec4 border_color = {0, 0, 0, 0};
+                        memcpy(state.render.verts[state.render.vert_count].border_color, border_color, sizeof(vec4));
+                        state.render.verts[state.render.vert_count].border_width = 0;
+
                         vec4 color_arr;
                         color_arr[0] = color.r;
                         color_arr[1] = color.g;
@@ -1130,6 +1246,19 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
                         texcoord_arr[1] = texcoords[i].y;
                         memcpy(state.render.verts[state.render.vert_count].texcoord, texcoord_arr, sizeof(vec2));
                         state.render.verts[state.render.vert_count].tex_index = tex_index;
+
+                        vec2 scale_arr;
+                        scale_arr[0] = 0;
+                        scale_arr[1] = 0;
+                        memcpy(state.render.verts[state.render.vert_count].scale, scale_arr, sizeof(vec2));
+
+                        vec2 pos_px_arr;
+                        pos_px_arr[0] = 0;
+                        pos_px_arr[1] = 0;
+                        memcpy(state.render.verts[state.render.vert_count].pos_px, pos_px_arr, sizeof(vec2));
+
+                        state.render.verts[state.render.vert_count].corner_radius = 0;
+
                         state.render.vert_count++;
                     }
                     state.render.index_count += 6;
@@ -1151,12 +1280,17 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
     ret.width = width;
     ret.height = height;
     ret.char_count = i - first_char_index; 
-    ret.reached_stop = (x > stop_point);
+    ret.reached_stop = (x > stop_point_x);
     ret.end_x = x;
     return ret;
 }
 
-void flush() {
+void lf_renderer_begin() {
+    state.render.vert_count = 0;
+    state.render.index_count = 0;
+    state.render.tex_index = 0;
+}
+void lf_flush() {
     if(state.render.vert_count <= 0) return;
 
     // Bind the vertex buffer & shader set the vertex data, bind the textures & draw
@@ -1169,12 +1303,10 @@ void flush() {
         glBindTextureUnit(i, state.render.textures[i].id);
     }
 
+    vec2s renderSize = (vec2s){state.dsp_w, state.dsp_h};
+    glUniform2fv(glGetUniformLocation(state.render.shader.id, "u_screen_size"), 1, (float*)renderSize.raw);
     glBindVertexArray(state.render.vao);
     glDrawElements(GL_TRIANGLES, state.render.index_count, GL_UNSIGNED_INT, NULL);
-
-    state.render.vert_count = 0;
-    state.render.index_count = 0;
-    state.render.tex_index = 0;
 }
 
 void update_input() {
@@ -1189,6 +1321,7 @@ void clear_events() {
     state.ch_ev.happened = false;
     state.gui_re_ev.happened = false;
     state.input.mouse.xpos_delta = 0;
+    state.input.mouse.ypos_delta = 0;
 }
 
 
@@ -1215,6 +1348,7 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* f
     state.render.tex_count = 0;
     state.pos_ptr = (vec2s){0, 0};
     state.text_wrap = false;
+    state.props_on_stack = false;
     if(theme != NULL) {
         state.theme = *theme;
         if(!state.theme.font.cdata) {
@@ -1231,6 +1365,11 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, const char* f
     glfwSetCursorPosCallback((GLFWwindow*)state.window_handle, glfw_cursor_callback);
     glfwSetCharCallback((GLFWwindow*)state.window_handle, glfw_char_callback);
     renderer_init();
+
+    lf_pop_text_start_x();
+    lf_pop_text_stop_x();
+    lf_pop_text_start_y();
+    lf_pop_text_stop_y();
 #endif
 }
 
@@ -1243,66 +1382,74 @@ LfTheme lf_default_theme(const char* font_path, uint32_t font_size) {
     theme.div_props = (LfUIElementProps){
         .color = (vec4s){LF_RGBA(45, 45, 45, 255)}, 
     };
+    float global_padding = 10;
+    float global_margin = 5;
     theme.text_props = (LfUIElementProps){
         .text_color = (vec4s){LF_RGBA(255, 255, 255, 255)}, 
         .border_color = (vec4s){0, 0, 0, 0},
         .padding = 0, 
-        .margin_left = 10, 
-        .margin_right = 10, 
-        .margin_top = 10, 
-        .margin_bottom = 10,
-        .border_width = 0,
+        .margin_left = global_margin, 
+        .margin_right = global_margin, 
+        .margin_top = global_margin, 
+        .margin_bottom = global_margin,
+        .border_width = global_margin,
+        .corner_radius = 0
     };
     theme.button_props = (LfUIElementProps){ 
         .color = (vec4s){LF_RGBA(133, 138, 148, 255)}, 
         .text_color = (vec4s){LF_RGBA(0, 0, 0, 255)}, 
         .border_color = (vec4s){LF_BLACK},
-        .padding = 10,
-        .margin_left = 10, 
-        .margin_right = 10, 
-        .margin_top = 10, 
-        .margin_bottom = 10, 
+        .padding = global_padding,
+        .margin_left = global_margin, 
+        .margin_right = global_margin, 
+        .margin_top = global_margin, 
+        .margin_bottom = global_margin, 
         .border_width = 4, 
+        .corner_radius = 0
     };
     theme.image_props = (LfUIElementProps){ 
         .color = (vec4s){LF_RGBA(255, 255, 255, 255)}, 
-        .margin_left = 10, 
-        .margin_right = 10, 
-        .margin_top = 10, 
-        .margin_bottom = 10
+        .margin_left = global_margin, 
+        .margin_right = global_margin, 
+        .margin_top = global_margin, 
+        .margin_bottom = global_margin,
+        .corner_radius = 0
     };
     theme.inputfield_props = (LfUIElementProps){ 
         .color = (vec4s){LF_RGBA(133, 138, 148, 255)}, 
         .text_color = (vec4s){LF_RGBA(0, 0, 0, 255)}, 
         .border_color = (vec4s){LF_BLACK},
-        .padding = 10, 
-        .margin_left = 10, 
-        .margin_right = 10, 
-        .margin_top = 10, 
-        .margin_bottom = 10, 
+        .padding = global_padding, 
+        .margin_left = global_margin, 
+        .margin_right = global_margin, 
+        .margin_top = global_margin, 
+        .margin_bottom = global_margin, 
         .border_width = 4,
+        .corner_radius = 0
     };
     theme.checkbox_props = (LfUIElementProps){ 
         .color = (vec4s){LF_RGBA(133, 138, 148, 255)}, 
         .text_color = (vec4s){LF_RGBA(0, 0, 0, 255)}, 
         .border_color = (vec4s){LF_BLACK},
-        .padding = 10, 
-        .margin_left = 10, 
-        .margin_right = 10, 
-        .margin_top = 10, 
-        .margin_bottom = 10, 
+        .padding = global_padding, 
+        .margin_left = global_margin, 
+        .margin_right = global_margin, 
+        .margin_top = global_margin, 
+        .margin_bottom = global_margin, 
         .border_width = 4,
+        .corner_radius = 0
     };
     theme.slider_props = (LfUIElementProps){ 
         .color = (vec4s){LF_RGBA(133, 138, 148, 255)}, 
         .text_color = (vec4s){LF_RGBA(0, 0, 0, 255)}, 
         .border_color = (vec4s){LF_BLACK},
-        .padding = 10,
-        .margin_left = 10, 
-        .margin_right = 10, 
-        .margin_top = 10, 
-        .margin_bottom = 10, 
+        .padding = global_padding,
+        .margin_left = global_margin, 
+        .margin_right = global_margin, 
+        .margin_top = global_margin, 
+        .margin_bottom = global_margin, 
         .border_width = 4,
+        .corner_radius = 0
     };
     theme.font = load_font(font_path, font_size, 1024, 1024, 256, 5); 
     return theme;
@@ -1312,6 +1459,14 @@ void lf_resize_display(uint32_t display_width, uint32_t display_height) {
     // Setting the display height internally
     state.dsp_w = display_width;
     state.dsp_h = display_height;
+
+    set_projection_matrix();
+
+    state.current_div.aabb.size.x = state.dsp_w;
+    state.current_div.aabb.size.y = state.dsp_h;
+}
+
+void set_projection_matrix() { 
     float left = 0.0f;
     float right = state.dsp_w;
     float bottom = state.dsp_h;
@@ -1326,9 +1481,6 @@ void lf_resize_display(uint32_t display_width, uint32_t display_height) {
     orthoMatrix[2][2] = -1;
     orthoMatrix[3][0] = -(right + left) / (right - left);
     orthoMatrix[3][1] = -(top + bottom) / (top - bottom);
-
-    state.current_div.aabb.size.x = state.dsp_w;
-    state.current_div.aabb.size.y = state.dsp_h;
 
     shader_set_mat(state.render.shader, "u_proj", orthoMatrix);
 }
@@ -1408,94 +1560,121 @@ double lf_get_mouse_scroll_y() {
 
 LfClickableItemState lf_button(const char* text) {
     // Retrieving the property data of the button
-    float padding = state.theme.button_props.padding;
-    float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
-        margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom; 
-    float border_width = state.theme.button_props.border_width;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+    float padding = props.padding;
+    float margin_left = props.margin_left, margin_right = props.margin_right,
+        margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
 
-    vec4s color = state.item_color_stack.a != -1 ? state.item_color_stack : state.theme.button_props.color;
-    vec4s text_color = state.text_color_stack.a != -1 ? state.text_color_stack : state.theme.button_props.text_color;
+    vec4s color = props.color;
+    vec4s text_color = props.text_color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
 
     // If the button does not fit onto the current div, advance to the next line
-    LfTextProps text_props = lf_text_render(state.pos_ptr, text, font, -1, -1, -1, true, text_color);
+    LfTextProps text_props = text_render_simple(state.pos_ptr, text, font, text_color, true);
     next_line_on_overflow(
-        (vec2s){text_props.width + padding * 2.0f + margin_right + margin_left + border_width * 2.0f, 
-                    text_props.height + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f});
+        (vec2s){text_props.width + padding * 2.0f + margin_right + margin_left, 
+                    text_props.height + padding * 2.0f + margin_bottom + margin_top});
 
     // Advancing the position pointer by the margins
-    state.pos_ptr.x += margin_left + border_width;
-    state.pos_ptr.y += margin_top + border_width;
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top;
 
     // Rendering the button
     LfClickableItemState ret = clickable_item(state.pos_ptr, (vec2s){text_props.width + padding * 2, text_props.height + padding * 2}, 
-                                              state.theme.button_props, color, border_width, true, true);
+                                              props, color, props.border_width, true, true);
     // Rendering the text of the button
-    lf_text_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + text_props.height / 2.0f}, text, font, -1, -1, -1, false, text_color);
+    text_render_simple((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + text_props.height / 2.0f}, text, font, text_color, false);
 
     // Advancing the position pointer by the width of the button
-    state.pos_ptr.x += text_props.width + margin_right + padding * 2.0f + border_width;
-    state.pos_ptr.y -= margin_top + border_width;
+    state.pos_ptr.x += text_props.width + margin_right + padding * 2.0f;
+    state.pos_ptr.y -= margin_top;
+
+    return ret; 
+}
+LfClickableItemState lf_image_button(LfTexture img) {
+    // Retrieving the property data of the button
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+    float padding = props.padding;
+    float margin_left = props.margin_left, margin_right = props.margin_right,
+        margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
+
+    vec4s color = props.color;
+    vec4s text_color = state.theme.button_props.text_color;
+    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+
+    // If the button does not fit onto the current div, advance to the next line
+    next_line_on_overflow(
+        (vec2s){img.width + padding * 2.0f + margin_right + margin_left, 
+                    img.height + padding * 2.0f + margin_bottom + margin_top});
+
+    // Advancing the position pointer by the margins
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top;
+
+    // Rendering the button
+    LfClickableItemState ret = clickable_item(state.pos_ptr, (vec2s){img.width + padding * 2, img.height + padding * 2}, 
+                                              props, color, props.border_width, true, true);
+    // Rendering the text of the button
+    lf_image_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, (vec4s){1.0f, 1.0f, 1.0f, 1.0f}, img, (vec4s){0.0f, 0.0f, 0.0f, 0.0f}, 0, props.corner_radius);
+
+    // Advancing the position pointer by the width of the button
+    state.pos_ptr.x += img.width + margin_right + padding * 2.0f;
+    state.pos_ptr.y -= margin_top;
 
     return ret; 
 }
 LfClickableItemState lf_button_fixed(const char* text, int32_t width, int32_t height) {
     // Retrieving the property data of the button
-    float padding = state.theme.button_props.padding;
-    float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
-        margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom;
-    float border_width = state.theme.button_props.border_width;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+    float padding = props.padding;
+    float margin_left = props.margin_left, margin_right = props.margin_right,
+        margin_top = props.margin_top, margin_bottom = props.margin_bottom;
 
-    vec4s color = state.item_color_stack.a != -1 ? state.item_color_stack : state.theme.button_props.color;
-    vec4s text_color = state.text_color_stack.a != -1 ? state.text_color_stack : state.theme.button_props.text_color;
+    vec4s color = props.color;
+    vec4s text_color = props.text_color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
 
     // If the button does not fit onto the current div, advance to the next line
-    LfTextProps text_props = lf_text_render(state.pos_ptr, text, state.theme.font, -1, -1, -1, true, text_color);
-    if(state.pos_ptr.y + ((height == -1) ? text_props.height : height) + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f >= state.current_div.aabb.size.y) {
+    LfTextProps text_props = text_render_simple(state.pos_ptr, text, font, text_color, true);
+    if(state.pos_ptr.y + ((height == -1) ? text_props.height : height) + padding * 2.0f + margin_bottom + margin_top >= state.current_div.aabb.size.y) {
         return LF_IDLE; 
     }
     next_line_on_overflow(
-        (vec2s){((width == -1) ? text_props.width : width + padding * 2.0f) + margin_right + margin_left + border_width * 2.0f,
-            ((height == -1) ? text_props.height : height) + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f}); 
+        (vec2s){((width == -1) ? text_props.width : width + padding * 2.0f) + margin_right + margin_left,
+            ((height == -1) ? text_props.height : height) + padding * 2.0f + margin_bottom + margin_top}); 
 
     // Advancing the position pointer by the margins
-    state.pos_ptr.x += margin_left + border_width;
-    state.pos_ptr.y += margin_top + border_width;
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top; 
 
     // Rendering the button
     LfClickableItemState ret = clickable_item(state.pos_ptr, 
-        (vec2s){width == -1 ? text_props.width + padding * 2.0f : width + padding * 2, ((height == -1) ? text_props.height : height) + padding * 2}, state.theme.button_props, 
-                                              color, border_width, true, true);
+        (vec2s){width == -1 ? text_props.width + padding * 2.0f : width + padding * 2, ((height == -1) ? text_props.height : height) + padding * 2}, props, 
+                                              color, props.border_width, false, true);
 
     // Rendering the text of the button
-    lf_text_render((vec2s)
+    text_render_simple((vec2s)
         {state.pos_ptr.x + padding + ((width != -1) ? width / 2.0f - text_props.width / 2.0f : 0),
         state.pos_ptr.y + padding + ((height != -1) ? height / 2.0f - text_props.height / 2.0f : 0)
-        }, text, font, -1, -1, -1,
-                   false, text_color);
+        }, text, font, text_color, false);
 
     // Advancing the position pointer by the width of the button
-    state.pos_ptr.x += ((width == -1) ? text_props.width : width) + margin_right + border_width + padding * 2.0f;
-    state.pos_ptr.y -= margin_top + border_width;
+    state.pos_ptr.x += ((width == -1) ? text_props.width : width) + margin_right + padding * 2.0f;
+    state.pos_ptr.y -= margin_top;
     return ret;
 }
 
 LfClickableItemState lf_div_begin(vec2s pos, vec2s size) {
     // Re-initializing the div 
-    if(!state.current_div.init_size) {
-        state.current_div.aabb.pos = pos;
-        state.current_div.aabb.size = size;
-        state.current_div.init_size = true;
-    }
+    state.current_div.aabb.size = size;
+    state.current_div.aabb.pos = pos;
     state.current_div.init = true;
-    vec4s color = state.item_color_stack.a != -1 ? state.item_color_stack : state.theme.div_props.color;
-    state.current_div.interact_state = clickable_item(state.current_div.aabb.pos, state.current_div.aabb.size, state.theme.div_props, color, 0, false, false);
+    state.current_div.interact_state = LF_IDLE; 
     state.pos_ptr = pos;
     state.current_line_height = 0;
-    state.item_color_stack = (vec4s){-1.0f, -1.0f, -1.0f, -1.0f};
-    state.text_color_stack = (vec4s){-1.0f, -1.0f, -1.0f, -1.0f};
     state.font_stack = NULL;
+    state.props_on_stack = false;
+
     return state.current_div.interact_state;
 }
 
@@ -1512,39 +1691,36 @@ void lf_next_line() {
     state.gui_re_ev.happened = true;
 }
 vec2s lf_text_dimension(const char* str) {
-    LfTextProps props = lf_text_render((vec2s){0.0f, 0.0f}, str, state.theme.font, 
-                          -1, -1, -1, true, state.theme.text_props.text_color);
+    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+    LfTextProps props = text_render_simple((vec2s){0.0f, 0.0f}, str, font, state.theme.text_props.text_color, true);
 
     return (vec2s){props.width, props.height};
 }
 
 float lf_get_text_end(const char* str, float start_x) {
-    LfTextProps props = lf_text_render((vec2s){start_x, 0.0f}, str, state.theme.font,
-                          -1, -1, -1, true, state.theme.text_props.text_color);
+    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+    LfTextProps props = text_render_simple((vec2s){start_x, 0.0f}, str, font, state.theme.text_props.text_color, true);
     return props.end_x;
 }
 
-void lf_text(const char* fmt, ...) {
+void lf_text(const char* text) {
     if(!state.current_div.init) {
         LF_ERROR("Trying to render without div context. Call lf_div_begin()");
         return;
     }
-    char buf[512];
-    va_list args;
-    va_start(args, fmt);
-    vsprintf(buf, fmt, args);
-    va_end(args);
     // Retrieving the property data of the text
-    float padding = state.theme.text_props.padding;
-    float margin_left = state.theme.text_props.margin_left, margin_right = state.theme.text_props.margin_right, 
-        margin_top = state.theme.text_props.margin_top, margin_bottom = state.theme.text_props.margin_bottom;
-    vec4s text_color = state.text_color_stack.a != -1 ? state.text_color_stack : state.theme.text_props.text_color;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.text_props;
+    float padding = props.padding;
+    float margin_left = props.margin_left, margin_right = props.margin_right, 
+        margin_top = props.margin_top, margin_bottom = props.margin_bottom;
+    vec4s text_color = props.text_color;
+    vec4s color = props.color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
 
     // Advancing to the next line if the the text does not fit on the current div
-    LfTextProps text_props = lf_text_render(state.pos_ptr, buf, font, 
+    LfTextProps text_props = lf_text_render(state.pos_ptr, text, font, 
                                         state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right * 2.0 : -1,
-                                         -1, -1, true, text_color);
+                                         -1, -1, -1, 1, true, text_color);
     next_line_on_overflow(
         (vec2s){text_props.width + padding * 2.0f + margin_left + margin_right,
                     text_props.height + padding * 2.0f + margin_top + margin_bottom});
@@ -1553,13 +1729,10 @@ void lf_text(const char* fmt, ...) {
     state.pos_ptr.x += margin_left;
     state.pos_ptr.y += margin_top;
 
-    // Rendering the text color box if any
-    if(state.theme.text_props.color.a != 0.0f) {
-        lf_rect_render((vec2s){state.pos_ptr.x, state.pos_ptr.y + margin_top}, (vec2s){text_props.width + padding * 2.0f, text_props.height + padding * 2.0f}, state.theme.text_props.color);
-    }
+    // Rendering a colored text box if a color is specified
     // Rendering the text
-    lf_text_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, buf, font, 
-                state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right * 2.0f : -1, -1, -1, false, text_color);
+    lf_text_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, text, font, 
+                state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right * 2.0f : -1, -1, -1, -1, -1, false, text_color);
 
     // Advancing the position pointer by the width of the text
     state.pos_ptr.x += text_props.width + margin_right + padding;
@@ -1577,6 +1750,13 @@ void lf_set_ptr_x(float x) {
 void lf_set_ptr_y(float y) {
     state.pos_ptr.y = y + state.current_div.aabb.pos.y;
 }
+float lf_get_ptr_x() {
+    return state.pos_ptr.x;
+}
+
+float lf_get_ptr_y() {
+    return state.pos_ptr.y;
+}
 
 void lf_image(LfTexture tex) {
     if(!state.current_div.init) {
@@ -1584,9 +1764,10 @@ void lf_image(LfTexture tex) {
         return;
     }
     // Retrieving the property data of the image
-    float margin_left = state.theme.image_props.margin_left, margin_right = state.theme.image_props.margin_right, 
-        margin_top = state.theme.image_props.margin_top, margin_bottom = state.theme.image_props.margin_bottom;
-    vec4s color = state.item_color_stack.a != -1 ? state.item_color_stack : state.theme.image_props.color;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.image_props;
+    float margin_left = props.margin_left, margin_right = props.margin_right, 
+        margin_top = props.margin_top, margin_bottom = props.margin_bottom;
+    vec4s color = props.color;
 
     // Advancing to the next line if the image does not fit on the current div
     next_line_on_overflow((vec2s){tex.width + margin_left + margin_right, tex.height + margin_top + margin_bottom});
@@ -1596,7 +1777,7 @@ void lf_image(LfTexture tex) {
     state.pos_ptr.y += margin_top;
 
     // Rendering the image
-    lf_image_render(state.pos_ptr, color, tex);
+    lf_image_render(state.pos_ptr, color, tex, (vec4s){0.0f, 0.0f, 0.0f, 0.0f}, 0, props.corner_radius);
 
     // Advancing the position pointer by the width of the image
     state.pos_ptr.x += tex.width + margin_right;
@@ -1606,10 +1787,13 @@ LfTheme* lf_theme() {
     return &state.theme;
 }
 
-void lf_update() {
+void lf_begin() {
+    lf_renderer_begin();
+}
+void lf_end() {
     update_input();
     clear_events();
-    flush();
+    lf_flush();
 }
 void lf_input_text(LfInputField* input) {
     input_field(input, INPUT_TEXT);
@@ -1626,20 +1810,6 @@ void lf_set_text_wrap(bool wrap) {
     state.text_wrap = wrap;
 }
 
-void lf_set_item_color(vec4s color) {
-    state.item_color_stack = color;    
-}
-void lf_unset_item_color() {
-    state.item_color_stack = (vec4s){-1.0f, -1.0f, -1.0f, -1.0f};
-}
-
-void lf_set_text_color(vec4s color) {
-    state.text_color_stack = color;
-}
-
-void lf_unset_text_color() {
-    state.text_color_stack = (vec4s){-1.0f, -1.0f, -1.0f, -1.0f};
-}
 void lf_push_font(LfFont* font) {
     state.font_stack = font;
 }
@@ -1649,14 +1819,13 @@ void lf_pop_font() {
 }
 void lf_checkbox(const char* text, bool* val, uint32_t tex) {        
     // Retrieving the property values of the checkbox
-    float margin_left = state.theme.checkbox_props.margin_left;
-    float margin_right = state.theme.checkbox_props.margin_right;
-    float margin_top = state.theme.checkbox_props.margin_top;
-    float margin_bottom = state.theme.checkbox_props.margin_bottom;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.checkbox_props;
+    float margin_left = props.margin_left;
+    float margin_right = props.margin_right;
+    float margin_top = props.margin_top;
+    float margin_bottom = props.margin_bottom;
 
-    vec4s color = state.item_color_stack.a != -1 ? state.item_color_stack : state.theme.checkbox_props.color;
-    vec4s text_color = state.text_color_stack.a != -1 ? state.text_color_stack : state.theme.checkbox_props.text_color;
-    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+    vec4s color = props.color;
     float checkbox_size = state.theme.font.font_size;
 
     // Render the text of the checkbox
@@ -1670,7 +1839,7 @@ void lf_checkbox(const char* text, bool* val, uint32_t tex) {
     
     // Render the box 
     LfClickableItemState checkbox = clickable_item(state.pos_ptr, (vec2s){checkbox_size, checkbox_size}, 
-                                                   state.theme.checkbox_props, state.theme.checkbox_props.color, state.theme.checkbox_props.border_width, true, false);
+                                                   state.theme.checkbox_props, color, props.border_width, true, false);
 
     // Change the value if the checkbox is clicked
     if(checkbox == LF_CLICKED) {
@@ -1678,70 +1847,63 @@ void lf_checkbox(const char* text, bool* val, uint32_t tex) {
     }
     if(*val) {
         // Render the image
-        lf_image_render(state.pos_ptr, (vec4s){LF_WHITE}, (LfTexture){.id = tex, .width = (uint32_t)checkbox_size, .height = (uint32_t)checkbox_size});
+        lf_image_render(state.pos_ptr, (vec4s){LF_WHITE}, (LfTexture){.id = tex, .width = (uint32_t)checkbox_size, .height = (uint32_t)checkbox_size}, (vec4s){0.0f, 0.0f, 0.0f, 0.0f}, 0, props.corner_radius);
     }
     state.pos_ptr.x += checkbox_size + margin_right;
     state.pos_ptr.y -= margin_top;
 }
-void lf_rect(float width, float height, vec4s color) {
-    float padding = state.theme.button_props.padding;
-    float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
-        margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom; 
-    float border_width = state.theme.button_props.border_width;
-
-    // If the rect does not fit onto the current div, advance to the next line
-    next_line_on_overflow(
-        (vec2s){width + padding * 2.0f + margin_right + margin_left + border_width * 2.0f, 
-                    height + padding * 2.0f + margin_bottom + margin_top + border_width * 2.0f});
-
-    // Advancing the position pointer by the margins
-    state.pos_ptr.x += margin_left + border_width;
-    state.pos_ptr.y += margin_top + border_width;
-
+void lf_rect(float width, float height, vec4s color, float corner_radius) {
     // Rendering the rect
-    lf_rect_render(state.pos_ptr, (vec2s){width, height}, color);
+    lf_rect_render(state.pos_ptr, (vec2s){width, height}, color, (vec4s){0.0f, 0.0f, 0.0f, 0.0f}, 0, corner_radius);
 
-    state.pos_ptr.x += width + margin_right + padding * 2.0f + border_width;
-    state.pos_ptr.y -= margin_top + border_width;
+    state.pos_ptr.x += width;
 }
 
 int map_vals(int value, int from_min, int from_max, int to_min, int to_max) {
-    return to_min + (value - from_min) * (to_max - to_min) / (from_max - from_min);
+    
+    return (value - from_min) * (to_max - to_min) / (from_max - from_min) + to_min;
 }
-void lf_slider_int(LfSlider* slider) {
+LfClickableItemState lf_slider_int(LfSlider* slider) {
     // Getting property data
-    float margin_left = state.theme.button_props.margin_left, margin_right = state.theme.button_props.margin_right,
-    margin_top = state.theme.button_props.margin_top, margin_bottom = state.theme.button_props.margin_bottom; 
-    float border_width = state.theme.button_props.border_width;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.slider_props;
+    float margin_left = props.margin_left, margin_right = props.margin_right,
+    margin_top = props.margin_top, margin_bottom =props.margin_bottom; 
     // constants
-    const int32_t slider_width = 200; // px
-    const int32_t slider_height = 5; // px
+    const int32_t slider_width = slider->width; // px
+    const int32_t slider_height = slider->height; // px
     const int32_t handle_size = 20; // px 
     // Get the height of the element
-    const int32_t element_height = int_max(handle_size + border_width * 2, 
+    const int32_t element_height = int_max(handle_size, 
                                     slider_height); 
 
-    next_line_on_overflow( 
-        (vec2s){slider_width + margin_right + margin_left, 
-                handle_size + margin_bottom + margin_top + border_width});
+    vec4s color = props.color;
 
-    state.pos_ptr.x += margin_left + border_width;
-    state.pos_ptr.y += margin_top + border_width + (handle_size / 2.0f);
+    next_line_on_overflow(  
+        (vec2s){slider_width + margin_right + margin_left, 
+                handle_size + margin_bottom + margin_top});
+
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top + (handle_size / 2.0f);
 
     // Render the slider 
-    LfClickableItemState slider_state = clickable_item(state.pos_ptr, (vec2s){slider_width, slider_height}, 
-                                                       state.theme.slider_props, state.theme.slider_props.color, 0, 
+    LfClickableItemState slider_state = clickable_item(state.pos_ptr, (vec2s){(float)slider_width, (float)slider_height}, 
+                                                       props, color, 0, 
                                                        false, false);
    
     // Render the handle
-    LfClickableItemState handle = clickable_item((vec2s){state.pos_ptr.x + slider->handle_pos, state.pos_ptr.y - (handle_size + border_width) / 2.0f + slider_height / 2.0f}, 
-                                                 (vec2s){handle_size, handle_size}, state.theme.slider_props, state.theme.slider_props.color, border_width, false, false);
+    if(!slider->_init) {
+        slider->_init = true;
+        slider->handle_pos = map_vals(*(int32_t*)slider->val, slider->min, slider->max,
+                                          handle_size / 2.0f, slider->width - handle_size / 2.0f) - (handle_size) / 2.0f;
+    }
+    LfClickableItemState handle = clickable_item((vec2s){state.pos_ptr.x + slider->handle_pos, state.pos_ptr.y - (handle_size) / 2.0f + slider_height / 2.0f}, 
+                                                 (vec2s){handle_size, handle_size}, props, color, props.border_width, false, false);
     
     // Check if the slider bar is pressed
 
     if(slider_state == LF_CLICKED) {
         slider->handle_pos = lf_get_mouse_x() - state.pos_ptr.x;
-        *(int32_t*)slider->val = map_vals(state.pos_ptr.x + slider->handle_pos, state.pos_ptr.x,  state.pos_ptr.x + slider_width - (handle_size / 2.0f + border_width), 
+        *(int32_t*)slider->val = map_vals(state.pos_ptr.x + slider->handle_pos, state.pos_ptr.x,  state.pos_ptr.x + slider_width - (handle_size / 2.0f), 
                                           slider->min, slider->max);
     }
     if(handle == LF_CLICKED) {
@@ -1751,18 +1913,187 @@ void lf_slider_int(LfSlider* slider) {
         slider->held = false;
     }
     if(slider->held) {
-        if(lf_get_mouse_x() >= state.pos_ptr.x && lf_get_mouse_x() <= state.pos_ptr.x + slider_width - (handle_size / 2.0f + border_width)) {
+        if(lf_get_mouse_x() >= state.pos_ptr.x && lf_get_mouse_x() <= state.pos_ptr.x + slider_width - handle_size) {
             slider->handle_pos = lf_get_mouse_x() - state.pos_ptr.x;
-            *(int32_t*)slider->val = map_vals(state.pos_ptr.x + slider->handle_pos, state.pos_ptr.x,  state.pos_ptr.x + slider_width - (handle_size / 2.0f + border_width), 
+            *(int32_t*)slider->val = map_vals(state.pos_ptr.x + slider->handle_pos, state.pos_ptr.x,  state.pos_ptr.x + slider_width - handle_size, 
                                               slider->min, slider->max);
         } else if(lf_get_mouse_x() <= state.pos_ptr.x) {
             *(int32_t*)slider->val = slider->min;
             slider->handle_pos = 0;
-        } else if(lf_get_mouse_x() >= state.pos_ptr.x + slider_width - (handle_size + border_width * 2.0f)) {
+        } else if(lf_get_mouse_x() >= state.pos_ptr.x + slider_width) {
             *(int32_t*)slider->val = slider->max;
-            slider->handle_pos = slider_width - (handle_size + border_width);
+            slider->handle_pos = slider_width - handle_size;
         }
     }
-    state.pos_ptr.x += slider_width + margin_right + border_width;
-    state.pos_ptr.y -= margin_top + border_width + (handle_size / 2.0f);
+    state.pos_ptr.x += slider_width + margin_right;
+    state.pos_ptr.y -= margin_top + (handle_size / 2.0f);
+    return handle;
+}
+
+LfClickableItemState lf_progress_bar_int(LfSlider* slider) {
+    // Getting property data
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.slider_props;
+    float margin_left = props.margin_left, margin_right = props.margin_right,
+    margin_top = props.margin_top, margin_bottom =props.margin_bottom; 
+    // constants
+    const int32_t height = slider->height; // px
+
+    vec4s color = props.color;
+
+    next_line_on_overflow( 
+        (vec2s){slider->width + margin_right + margin_left, 
+                height + margin_bottom + margin_top });
+
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top;
+
+    // Render the slider 
+    LfClickableItemState bar = clickable_item(state.pos_ptr, (vec2s){(float)slider->width, (float)height},props, color, props.border_width, false, false);
+    
+    // Check if the slider bar is pressed
+    slider->handle_pos = map_vals(*(int32_t*)slider->val, slider->min, slider->max,
+                                  0, slider->width);
+    LfClickableItemState handle = clickable_item(state.pos_ptr, (vec2s){(float)slider->handle_pos, (float)height}, props, props.text_color, 0, false, false);
+
+    state.pos_ptr.x += slider->width + margin_right;
+    state.pos_ptr.y -= margin_top;
+    return bar;
+}
+
+LfClickableItemState lf_progress_stripe_int(LfSlider* slider) {
+    // Getting property data
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.slider_props;
+    float margin_left = props.margin_left, margin_right = props.margin_right,
+    margin_top = props.margin_top, margin_bottom =props.margin_bottom; 
+    // constants
+
+    vec4s color = props.color;
+
+    next_line_on_overflow( 
+        (vec2s){slider->width + margin_right + margin_left, 
+                slider->height + margin_bottom + margin_top});
+
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top;
+
+    // Render the slider 
+    LfClickableItemState bar = clickable_item(state.pos_ptr, (vec2s){(float)slider->width, (float)slider->height},props, color, props.border_width, false, false);
+    
+    // Check if the slider bar is pressed
+    slider->handle_pos = map_vals(*(int32_t*)slider->val, slider->min, slider->max,
+                                  0, slider->width);
+    LfClickableItemState handle = clickable_item(state.pos_ptr, (vec2s){(float)slider->handle_pos, (float)slider->height}, props, props.text_color, 0, false, false);
+    lf_rect_render((vec2s){state.pos_ptr.x + slider->handle_pos, state.pos_ptr.y - (float)slider->height / 2.0f}, (vec2s){(float)slider->height * 2, (float)slider->height * 2}, props.text_color, (vec4s){0.0f, 0.0f, 0.0f, 0.0f}, 0, props.corner_radius);
+
+    state.pos_ptr.x += slider->width + margin_right;
+    state.pos_ptr.y -= margin_top;
+    return bar;
+}
+int32_t lf_menu_item_list(const char** items, uint32_t item_count, int32_t selected_index, vec4s selected_color, LfMenuItemCallback per_cb, bool vertical) {
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+    float padding = props.padding;
+    float margin_left = props.margin_left, margin_right = props.margin_right,
+    margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
+    vec4s color = props.color;
+    LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
+    
+    LfTextProps text_props[item_count];
+    uint32_t width = 0;
+    for(uint32_t i  = 0; i < item_count; i++) {
+        text_props[i] = text_render_simple((vec2s){state.pos_ptr.x, state.pos_ptr.y + margin_top},items[i], font, props.text_color, true);
+        width += text_props[i].width + padding * 2.0f;
+    }
+    next_line_on_overflow(
+        (vec2s){width + padding * 2.0f + margin_right + margin_left, 
+                    font.font_size + padding * 2.0f + margin_bottom + margin_top});
+
+
+    state.pos_ptr.y += margin_top; 
+    state.pos_ptr.x += margin_left;
+
+    uint32_t element_width = 0;
+    uint32_t clicked_item = -1;
+    for(uint32_t i = 0; i < item_count; i++) {
+        LfUIElementProps props = state.theme.button_props;
+        props.margin_left = 0;
+        props.margin_right = 0;
+        LfUIElementProps button_props = state.theme.button_props;
+        lf_push_style_props(props);
+        if(i == selected_index) {
+            props.color = selected_color; 
+        }
+        lf_push_style_props(props);
+        if(lf_button(items[i]) == LF_CLICKED) {
+            clicked_item = i;  
+        } 
+        lf_pop_style_props();
+        per_cb(&i);
+    } 
+    next_line_on_overflow((vec2s){element_width + margin_right, font.font_size + margin_top + margin_bottom});
+ 
+    
+    state.pos_ptr.y -= margin_top;
+    return clicked_item;
+}
+void lf_push_style_props(LfUIElementProps props) {
+    state.props_stack = props;
+    state.props_on_stack = true;
+}
+
+void lf_pop_style_props() {
+    state.props_on_stack = false;
+}
+void lf_push_text_start_x(int32_t start_x) {
+    state.text_start_x_stack = start_x;
+}
+
+void lf_push_text_stop_x(int32_t stop_x) {
+    state.text_stop_x_stack = stop_x;
+}
+
+void lf_push_text_start_y(int32_t start_y) {
+    state.text_start_y_stack = start_y;
+}
+
+void lf_push_text_stop_y(int32_t stop_y) {
+    state.text_stop_y_stack = stop_y;
+}
+void lf_pop_text_start_x() {
+    state.text_start_x_stack = -2;
+}
+
+void lf_pop_text_stop_x() {
+    state.text_stop_x_stack = -2;
+}
+
+void lf_pop_text_start_y() {
+    state.text_start_y_stack = -2;
+}
+
+void lf_pop_text_stop_y() {
+    state.text_stop_y_stack = -2;
+}
+
+LfCursorPosEvent lf_mouse_move_event() {
+    return state.cp_ev;
+}
+
+LfMouseButtonEvent lf_mouse_button_event() {
+    return state.mb_ev;
+}
+
+LfScrollEvent lf_mouse_scroll_event() {
+    return state.scr_ev;
+}
+
+LfKeyEvent lf_key_event_event() {
+    return state.key_ev;
+}
+
+LfCharEvent lf_char_event() { 
+    return state.ch_ev;
+}
+
+LfGuiReEstablishEvent lf_gui_reastablish() {
+    return state.gui_re_ev;
 }
