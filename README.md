@@ -92,7 +92,7 @@ for(uint32_t i = 0; i < 4; i++) {
 lf_end();
 ```
 
-<img src="https://github.com/cococry/Leif/blob/main/branding/styling-elements.png" width=3750px/> 
+<img src="https://github.com/cococry/Leif/blob/main/branding/styling-elements.png" width=375px/> 
 
 ## Building
 
