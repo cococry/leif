@@ -1,15 +1,16 @@
-CC=cc
-INCS=`pkg-config --cflags glfw3 cglm` -Ivendor/glad/include -Ivendor/stb_image/ -Ivendor/stb_truetype
+CC=gcc
+INCS=`pkg-config --cflags glfw3 cglm` -Ivendor/glad/include -Ivendor/stb_image/ -Ivendor/stb_truetype -Ivendor/stb_image_resize
 CFLAGS+=${INCS} -DLF_GLFW -O3 -ffast-math 
-all: bin/leif.a
+all: lib/leif.a
 
-bin/leif.a: bin/leif.o
-	ar rcs bin/libleif.a bin/*.o
-bin/leif.o: bin
-	${CC} -c ${CFLAGS} leif.c -o bin/leif.o
-bin:
-	mkdir bin
+lib/leif.a: lib/leif.o
+	ar cr lib/libleif.a lib/*.o
+lib/leif.o: lib
+	${CC} ${CFLAGS} -c leif.c -o lib/leif.o
+	${CC} -c vendor/glad/src/glad.c -o lib/glad.o
+lib:
+	mkdir lib
 clean:
-	rm -r ./bin
+	rm -r ./lib 
 
 .PHONY: all test clean
