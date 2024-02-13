@@ -36,6 +36,26 @@ that the library ueses is OpenGL.
 
 *: This library is an optional library and will be replacable with other libraries
 
+
+## Building
+
+Building the static library should be as easy as installing the dependencies and executing the Makefile.
+
+#### Install the dependencies (Arch)
+```console
+sudo pacman -S gcc make glfw cglm
+```
+
+#### Install the dependencies (Debian)
+```console
+sudo apt install gcc make libglfw3 libglfw3-dev libcglm-dev
+```
+
+#### Building the library
+```console
+make
+```
+
 ## Usage
 
 Initialize Leif before using and after creating a window with your windowing backend:
@@ -94,21 +114,67 @@ lf_end();
 
 <img src="https://github.com/cococry/Leif/blob/main/branding/styling-elements.png" width=375px/> 
 
-## Building
+#### Working with Div Containers
+```c
+static LfTexture appleTexture = lf_load_texture("apple.png", false, LF_TEX_FILTER_LINEAR);
 
-Building the static library should be as easy as installing the dependencies and executing the Makefile.
+lf_begin();
 
-#### Install the dependencies (Arch)
-```console
-sudo pacman -S gcc make glfw cglm
+LfUIElementProps div_props = lf_theme()->div_props;
+div_props.border_width = 3;
+div_props.border_color = LF_BLUE;
+div_props.corner_radius = 6;
+lf_push_style_props(div_props);
+
+lf_div_begin((vec2s){10, 150}, (vec2s){300, 300}, true);
+
+lf_pop_style_props();
+
+for(uint32_t i = 0; i < 10; i++) {
+  if(i % 2 == 0) {
+    LfUIElementProps props = lf_theme()->button_props;
+    props.border_width = 0;
+    props.color = LF_WHITE;
+    props.text_color = LF_BLACK;
+    props.corner_radius = 3;
+
+    lf_push_style_props(props);
+
+    lf_push_element_id(i);
+    lf_button("Button");
+    lf_pop_element_id();
+
+    lf_pop_style_props();
+  } else {
+    lf_image((LfTexture){.id = appleTexture.id, .width = 64, .height = 64});
+  }
+  lf_next_line();
+}
+lf_div_end();
+
+div_props.border_color = LF_RED;
+lf_push_style_props(div_props)  ;
+
+lf_div_begin((vec2s){350, 150}, (vec2s){200, 200}, true);
+
+lf_pop_style_props();
+
+for(uint32_t i = 0; i < 20; i++) {
+  lf_text("Div Test");
+  lf_next_line();
+}
+
+lf_div_end();
+
+lf_end();
 ```
 
-#### Install the dependencies (Debian)
-```console
-sudo apt install gcc make libglfw3 libglfw3-dev libcglm-dev
-```
+<img src="https://github.com/cococry/Leif/blob/main/branding/div-showcase.gif" width="375px"/> 
 
-#### Building the library
-```console
-make
-```
+## Contributing
+
+You can contribue to Lyssa by:
+  - [Fixing bugs or contributing to features](https://github.com/cococry/lyssa/issues)
+  - [Changing features or adding new functionality](https://github.com/cococry/lyssa/pulls)
+
+
