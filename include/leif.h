@@ -408,4 +408,6 @@ LfFont lf_load_font_asset(const char* asset_name, const char* file_extension, ui
 
 LfTexture lf_load_texture_asset(const char* asset_name, const char* file_extension); 
 
+LfTheme lf_get_theme();
+
 void lf_set_theme(LfTheme theme);

@@ -1,4 +1,4 @@
-#include "include/leif.h"
+#include "leif.h"
 #include <cglm/mat4.h>
 #include <cglm/types-struct.h>
 #include <ctype.h>
@@ -2094,14 +2094,13 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_wi
         LF_ERROR("Trying to initialize Leif with GLFW without initializing GLFW first.");
         return;
     }
-    memset(&state, 0, sizeof(state));
-
-    glfwMakeContextCurrent((GLFWwindow*)glfw_window);
 
     if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         LF_ERROR("Failed to initialize Glad.");
         return;
     }
+    memset(&state, 0, sizeof(state));
+
     // Default state
     state.init = true;
     state.dsp_w = display_width;
@@ -3110,7 +3109,6 @@ void lf_set_line_should_overflow(bool overflow) {
 void lf_set_div_hoverable(bool clickable) {
     state.div_hoverable = clickable;
 }
-
 void lf_push_element_id(int64_t id) {
     state.element_id_stack = id;
 }
@@ -3119,6 +3117,10 @@ void lf_pop_element_id() {
     state.element_id_stack = -1;
 }
 
+LfTheme lf_get_theme() {
+    return state.theme;
+}
+
 void lf_set_theme(LfTheme theme) {
     state.theme = theme;
-} 
+}
