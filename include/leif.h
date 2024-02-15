@@ -137,15 +137,12 @@ typedef struct {
 } LfTheme;
 
 typedef struct {
-    int32_t id;
-
+    uint64_t id;
     LfAABB aabb;
     LfClickableItemState interact_state;
 
-    bool init, hidden, scrollable;
+    bool scrollable;
     
-    float scroll, scroll_velocity;
-
     vec2s total_area;
 } LfDiv;
 
@@ -219,7 +216,16 @@ double lf_get_mouse_scroll_x();
 
 double lf_get_mouse_scroll_y();
 
-LfDiv* lf_div_begin(vec2s pos, vec2s size, bool scrollable);
+#define lf_div_begin(pos, size, scrollable) {\
+    static float scroll = 0.0f; \
+    static float scroll_velocity = 0.0f; \
+    _lf_div_begin_loc(pos, size, scrollable, &scroll, &scroll_velocity, __FILE__, __LINE__);\
+}
+
+#define lf_div_begin_ex(pos, size, scrollable, scroll_ptr, scroll_velocity_ptr) _lf_div_begin_loc(pos, size, scrollable, scroll_ptr, scroll_velocity_ptr, __FILE__, __LINE__);
+
+LfDiv _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, 
+        float* scroll_velocity, const char* file, int32_t line);
 
 void lf_div_end();
 
@@ -229,7 +235,7 @@ LfClickableItemState _lf_button_loc(const char* text, const char* file, int32_t 
 vec2s lf_button_dimension(const char* text);
 
 #define lf_button_wide(text) _lf_button_loc_wide(text, __FILE__, __LINE__)
-LfClickableItemState _lf_button_loc_wide(const wchar_t* text, const char* file, int32_t line);
+LfClickableItemState _lf_button_wide_loc(const wchar_t* text, const char* file, int32_t line);
 
 #define lf_image_button(img) _lf_image_button_loc(img, __FILE__, __LINE__)
 LfClickableItemState _lf_image_button_loc(LfTexture img, const char* file, int32_t line);
@@ -379,16 +385,6 @@ void lf_unset_cull_start_y();
 void lf_unset_cull_end_x();
 
 void lf_unset_cull_end_y();
-
-void lf_div_hide();
-
-void lf_div_hide_index(uint32_t i);
-
-uint32_t lf_get_div_count();
-
-LfDiv* lf_get_divs();
-
-void lf_set_div_storage(bool storage);
 
 void lf_set_div_cull(bool cull);
 
