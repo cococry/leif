@@ -173,7 +173,7 @@ lf_end();
 
 ## Contributing
 
-You can contribue to Lyssa by:
+You can contribute to Leif by:
   - [Fixing bugs or contributing to features](https://github.com/cococry/lyssa/issues)
   - [Changing features or adding new functionality](https://github.com/cococry/lyssa/pulls)
 
