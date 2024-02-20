@@ -51,10 +51,18 @@ sudo pacman -S gcc make glfw cglm
 sudo apt install gcc make libglfw3 libglfw3-dev libcglm-dev
 ```
 
-#### Building the library
+### Building the library
+
+#### Generate static library
 ```console
 make
 ```
+
+#### Install the library 
+```console 
+sudo make install 
+```
+
 
 ## Usage
 
