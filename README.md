@@ -179,6 +179,13 @@ lf_end();
 
 <img src="https://github.com/cococry/Leif/blob/main/branding/div-showcase.gif" width="375px"/> 
 
+## Real world usage
+
+But how does the leif library perform in real applications? I am currently working on a music player called [lyssa](https://github.com/cococry/lyssa). The frontend of the player
+is written entirely with leif. You can see a brief look at of the application below.
+
+<img src="https://github.com/cococry/lyssa/blob/main/branding/lyssa-showcase.png" width="1000px"/> 
+
 ## Contributing
 
 You can contribute to Leif by:
