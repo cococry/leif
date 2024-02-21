@@ -2502,6 +2502,11 @@ LfClickableItemState _lf_button_fixed_wide_loc(const wchar_t* text, int32_t widt
 }
 
 LfDiv _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, float* scroll_velocity, const char* file, int32_t line) {
+    bool hovered_div = area_hovered(pos, size);
+    if(hovered_div) {
+        state.scroll_velocity_ptr = scroll_velocity;
+        state.scroll_ptr = scroll;
+    }
     uint64_t id = DJB2_INIT;
     id = djb2_hash(id, file, strlen(file));
     id = djb2_hash(id, &line, sizeof(line));
@@ -2536,6 +2541,11 @@ LfDiv _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, f
 
     state.pos_ptr = pos; 
     state.current_div = div;
+    if(hovered_div) {
+        state.selected_div_tmp = div;
+    }
+    if(hovered_div) {
+    }
 
     div.interact_state = div_container((vec2s){pos.x - props.padding, pos.y - props.padding}, 
                                        (vec2s){size.x + props.padding * 2.0f, size.y + props.padding * 2.0f}, 
@@ -2550,11 +2560,6 @@ LfDiv _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, f
     state.cull_start = (vec2s){pos.x, pos.y + props.border_width};
     state.cull_end = (vec2s){pos.x + size.x - props.border_width, pos.y + size.y - props.border_width};
 
-    if(area_hovered(div.aabb.pos, div.aabb.size)) {
-        state.selected_div_tmp = div;
-        state.scroll_velocity_ptr = scroll_velocity;
-        state.scroll_ptr = scroll;
-    }
     state.current_div = div;
 
     state.current_line_height = 0;
@@ -3185,4 +3190,20 @@ LfColor lf_color_from_hex(uint32_t hex) {
 
 LfColor lf_color_from_zto(vec4s zto) {
     return (LfColor){(uint8_t)(zto.r * 255.0f), (uint8_t)(zto.g * 255.0f), (uint8_t)(zto.b * 255.0f), (uint8_t)(zto.a * 255.0f)};
+}
+
+void lf_seperator() {
+    lf_next_line();
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+    state.pos_ptr.x += props.margin_left;
+    state.pos_ptr.y += props.margin_top;
+
+    const uint32_t seperator_height = 1;
+    lf_set_line_height(props.margin_top + seperator_height + props.margin_bottom);
+
+    lf_rect_render(state.pos_ptr, (vec2s){state.current_div.aabb.size.x - props.margin_left * 2.0f - state.current_div.aabb.pos.x, seperator_height}, 
+                   props.color, LF_NO_COLOR, 0, props.corner_radius);
+
+    state.pos_ptr.y -= props.margin_top;
+    lf_next_line();
 }

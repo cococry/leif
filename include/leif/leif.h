@@ -438,3 +438,5 @@ vec4s lf_color_to_zto(LfColor color);
 LfColor lf_color_from_hex(uint32_t hex);
 
 LfColor lf_color_from_zto(vec4s zto);
+
+void lf_seperator();
