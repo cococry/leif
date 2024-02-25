@@ -1,4 +1,4 @@
-#include "include/leif/leif.h"
+#include "include/leif.h"
 #include <cglm/mat4.h>
 #include <cglm/types-struct.h>
 #include <ctype.h>
@@ -21,6 +21,7 @@
 #include <limits.h>
 #include <wchar.h>
 #include <wctype.h>
+#include <math.h>
 
 #ifdef _WIN32
 #define HOMEDIR "USERPROFILE"
@@ -80,7 +81,7 @@
 #define CURSOR_CALLBACK_t void*
 #endif
 #define MAX_RENDER_BATCH 10000
-#define MAX_TEX_COUNT_BATCH 4
+#define MAX_TEX_COUNT_BATCH 32
 #define MAX_KEY_CALLBACKS 4
 #define MAX_MOUSE_BTTUON_CALLBACKS 4
 #define MAX_SCROLL_CALLBACKS 4
@@ -192,6 +193,8 @@ typedef struct {
     uint32_t drawcalls;
 
     bool entered_div;
+
+    bool div_velocity_accelerating;
 } LfState;
 
 typedef enum {
@@ -430,7 +433,7 @@ void renderer_init() {
         "flat in vec2 v_scale;\n"
         "flat in vec2 v_pos_px;\n"
         "in float v_corner_radius;\n"
-        "uniform sampler2D u_textures[4];\n"
+        "uniform sampler2D u_textures[32];\n"
         "uniform vec2 u_screen_size;\n"
         "in vec2 v_min_coord;\n"
         "in vec2 v_max_coord;\n"
@@ -820,6 +823,7 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
     font.tex_height = tex_height;
     font.line_gap_add = line_gap_add;
     font.font_size = pixelsize;
+    font.num_glyphs = num_glyphs;
     stbtt_BakeFontBitmap(buf, 0, pixelsize, bitmap, tex_width, tex_height, 32, num_glyphs, (stbtt_bakedchar*)font.cdata);
 
     uint32_t bitmap_index = 0;
@@ -916,7 +920,7 @@ LfClickableItemState button(const char* file, int32_t line, vec2s pos, vec2s siz
         return LF_IDLE;
     }
 
-    LfColor hover_color_rgb = hover_color ? lf_color_brightness(color, 1.1) : color; 
+    LfColor hover_color_rgb = hover_color ? (props.hover_color.a == 0.0f ? lf_color_brightness(color, 1.1) : props.hover_color) : color; 
     LfColor held_color_rgb = click_color ? lf_color_brightness(color, 1.2) : color; 
 
     bool is_hovered = lf_hovered(pos, size);
@@ -950,7 +954,7 @@ LfClickableItemState div_container(vec2s pos, vec2s size, LfUIElementProps props
         return LF_IDLE;
     }
 
-    LfColor hover_color_rgb = hover_color ? lf_color_brightness(color, 1.1) : color; 
+    LfColor hover_color_rgb = hover_color ? (props.hover_color.a == 0.0f ? lf_color_brightness(color, 1.1) : props.hover_color) : color; 
     LfColor held_color_rgb = click_color ? lf_color_brightness(color, 1.2) : color; 
 
     bool is_hovered = lf_hovered(pos, size);
@@ -1044,6 +1048,7 @@ void glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
         if(selected_div->total_area.y > (selected_div->aabb.size.y + selected_div->aabb.pos.y)) { 
             if(state.theme.div_smooth_scroll) {
                 *state.scroll_velocity_ptr -= state.theme.div_scroll_acceleration;
+                state.div_velocity_accelerating = true;
             } else {
                 *state.scroll_ptr -= state.theme.div_scroll_amount_px;
             }
@@ -1052,6 +1057,7 @@ void glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
         if(*state.scroll_ptr) {
             if(state.theme.div_smooth_scroll) {
                 *state.scroll_velocity_ptr += state.theme.div_scroll_acceleration;
+                state.div_velocity_accelerating = false;
             } else {
                 *state.scroll_ptr += state.theme.div_scroll_amount_px;
             }
@@ -1539,24 +1545,25 @@ LfClickableItemState button_element_loc(void* text, const char* file, int32_t li
     float margin_left = props.margin_left, margin_right = props.margin_right,
         margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
 
-    LfColor color = props.color;
-    LfColor text_color = props.text_color;
+    // Advancing the position pointer by the margins
+    state.pos_ptr.x += margin_left;
+    state.pos_ptr.y += margin_top;
     LfFont font = get_current_font();
 
-    // If the button does not fit onto the current div, advance to the next line
     LfTextProps text_props;
     if(wide) 
-        text_props = text_render_simple_wide(state.pos_ptr, (const wchar_t*)text, font, text_color, true);
+        text_props = text_render_simple_wide(state.pos_ptr, (const wchar_t*)text, font, LF_NO_COLOR, true);
     else 
-        text_props = text_render_simple(state.pos_ptr, (const char*)text, font, text_color, true);
+        text_props = text_render_simple(state.pos_ptr, (const char*)text, font, LF_NO_COLOR, true);
 
+    LfColor color = props.color;
+    LfColor text_color = lf_hovered(state.pos_ptr, (vec2s){text_props.width, text_props.height}) && props.hover_text_color.a != 0.0f ? props.hover_text_color : props.text_color;
+
+    // If the button does not fit onto the current div, advance to the next line
     next_line_on_overflow(
         (vec2s){text_props.width + padding * 2.0f + margin_right + margin_left, 
                     text_props.height + padding * 2.0f + margin_bottom + margin_top}, state.div_props.border_width);
 
-    // Advancing the position pointer by the margins
-    state.pos_ptr.x += margin_left;
-    state.pos_ptr.y += margin_top;
 
     // Rendering the button
     LfClickableItemState ret = button(file, line, state.pos_ptr, (vec2s){text_props.width + padding * 2, text_props.height + padding * 2}, 
@@ -1580,17 +1587,17 @@ LfClickableItemState button_fixed_element_loc(void* text, int32_t width, int32_t
     float margin_left = props.margin_left, margin_right = props.margin_right,
         margin_top = props.margin_top, margin_bottom = props.margin_bottom;
 
-    LfColor color = props.color;
-    LfColor text_color = props.text_color;
     LfFont font = state.font_stack ? *state.font_stack : state.theme.font;
-
-    // If the button does not fit onto the current div, advance to the next line
     LfTextProps text_props; 
     if(wide)
-        text_props = text_render_simple_wide(state.pos_ptr, (const wchar_t*)text, font, text_color, true);
+        text_props = text_render_simple_wide(state.pos_ptr, (const wchar_t*)text, font, LF_NO_COLOR, true);
     else 
-        text_props = text_render_simple(state.pos_ptr, (const char*)text, font, text_color, true);
+        text_props = text_render_simple(state.pos_ptr, (const char*)text, font, LF_NO_COLOR, true);
 
+    LfColor color = props.color;
+    LfColor text_color = lf_hovered(state.pos_ptr, (vec2s){text_props.width, text_props.height}) && props.hover_text_color.a != 0.0f ? props.hover_text_color : props.text_color;
+
+    // If the button does not fit onto the current div, advance to the next line
     int32_t render_width = ((width == -1) ? text_props.width : width);
     int32_t render_height = ((height == -1) ? text_props.height : height);
 
@@ -1867,6 +1874,9 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
 
     while(*str) { 
         bool skip = false;
+        if(*str >= font.num_glyphs) {
+            skip = true;
+        } 
         // If the current character is a new line or the wrap point has been reached, advance to the next line
         if(*str == '\n' || (x >= wrap_point && wrap_point != -1)) {
             y += font.font_size;
@@ -1991,9 +2001,10 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, int
     float width = 0;
     
     uint32_t i = 0;
-    for(; str[i] != L'\0'; i++) { 
+    for(; str[i] != L'\0'; i++) {
+        if(str[i] >= font.num_glyphs) continue;
         if(stbtt_FindGlyphIndex((const stbtt_fontinfo*)font.font_info, str[i]-32) == 0 && 
-            str[i] != L' ' && str[i] != L'\n' && !iswdigit(str[i]) && !iswpunct(str[i]))  {
+            str[i] != L' ' && str[i] != L'\n' && str[i] != L'\t' && !iswdigit(str[i]) && !iswpunct(str[i]))  {
             continue;
         }
         // If the current character is a new line or the wrap point has been reached, advance to the next line
@@ -2198,7 +2209,8 @@ LfTheme lf_default_theme() {
         .color = (LfColor){45, 45, 45, 255},
         .border_color = (LfColor){0, 0, 0, 0}, 
         .border_width = 0.0f, 
-        .corner_radius = 0.0f, 
+        .corner_radius = 0.0f,
+        .hover_color = LF_NO_COLOR,
     };
     float global_padding = 10;
     float global_margin = 5;
@@ -2211,7 +2223,9 @@ LfTheme lf_default_theme() {
         .margin_top = global_margin, 
         .margin_bottom = global_margin,
         .border_width = global_margin,
-        .corner_radius = 0
+        .corner_radius = 0, 
+        .hover_color = LF_NO_COLOR, 
+        .hover_text_color = LF_NO_COLOR
     };
     theme.button_props = (LfUIElementProps){ 
         .color = LF_PRIMARY_ITEM_COLOR, 
@@ -2223,7 +2237,9 @@ LfTheme lf_default_theme() {
         .margin_top = global_margin, 
         .margin_bottom = global_margin, 
         .border_width = 4, 
-        .corner_radius = 0
+        .corner_radius = 0, 
+        .hover_color = LF_NO_COLOR, 
+        .hover_text_color = LF_NO_COLOR
     };
     theme.image_props = (LfUIElementProps){ 
         .color = LF_WHITE,
@@ -2231,7 +2247,9 @@ LfTheme lf_default_theme() {
         .margin_right = global_margin, 
         .margin_top = global_margin, 
         .margin_bottom = global_margin,
-        .corner_radius = 0
+        .corner_radius = 0,
+        .hover_color = LF_NO_COLOR, 
+        .hover_text_color = LF_NO_COLOR
     };
     theme.inputfield_props = (LfUIElementProps){ 
         .color = LF_PRIMARY_ITEM_COLOR,
@@ -2243,7 +2261,9 @@ LfTheme lf_default_theme() {
         .margin_top = global_margin, 
         .margin_bottom = global_margin, 
         .border_width = 4,
-        .corner_radius = 0
+        .corner_radius = 0,
+        .hover_color = LF_NO_COLOR, 
+        .hover_text_color = LF_NO_COLOR
     };
     theme.checkbox_props = (LfUIElementProps){ 
         .color = LF_PRIMARY_ITEM_COLOR, 
@@ -2255,7 +2275,9 @@ LfTheme lf_default_theme() {
         .margin_top = global_margin, 
         .margin_bottom = global_margin, 
         .border_width = 4,
-        .corner_radius = 0
+        .corner_radius = 0,
+        .hover_color = LF_NO_COLOR, 
+        .hover_text_color = LF_NO_COLOR
     };
     theme.slider_props = (LfUIElementProps){ 
         .color = LF_PRIMARY_ITEM_COLOR, 
@@ -2267,7 +2289,9 @@ LfTheme lf_default_theme() {
         .margin_top = global_margin, 
         .margin_bottom = global_margin, 
         .border_width = 4,
-        .corner_radius = 0
+        .corner_radius = 0,
+        .hover_color = LF_NO_COLOR, 
+        .hover_text_color = LF_NO_COLOR
     };
     theme.scrollbar_props = (LfUIElementProps){ 
         .color = LF_SECONDARY_ITEM_COLOR, 
@@ -2278,12 +2302,15 @@ LfTheme lf_default_theme() {
         .margin_top = 5, 
         .margin_bottom = 0, 
         .border_width = 0,
-        .corner_radius = 0
+        .corner_radius = 0,
+        .hover_color = LF_NO_COLOR, 
+        .hover_text_color = LF_NO_COLOR
     };
     theme.font = lf_load_font_asset("inter", "ttf", 24);
 
     theme.div_scroll_max_veclocity = 100.0f; 
-    theme.div_scroll_acceleration = 1.6f;
+    theme.div_scroll_velocity_deceleration = 0.92;
+    theme.div_scroll_acceleration = 2.5f;
     theme.div_scroll_amount_px = 20.0f;
     theme.div_smooth_scroll = true;
 
@@ -2535,7 +2562,10 @@ LfDiv _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, f
 
         if(state.theme.div_smooth_scroll) {
             *scroll += *scroll_velocity;
-            *scroll_velocity *= 0.95; 
+            *scroll_velocity *= state.theme.div_scroll_velocity_deceleration;
+            if(*scroll_velocity > -0.1 && state.div_velocity_accelerating) {
+                *scroll_velocity = 0.0f;
+            }
         }
     }
 
@@ -3201,7 +3231,7 @@ void lf_seperator() {
     const uint32_t seperator_height = 1;
     lf_set_line_height(props.margin_top + seperator_height + props.margin_bottom);
 
-    lf_rect_render(state.pos_ptr, (vec2s){state.current_div.aabb.size.x - props.margin_left * 2.0f - state.current_div.aabb.pos.x, seperator_height}, 
+    lf_rect_render(state.pos_ptr, (vec2s){state.current_div.aabb.size.x - props.margin_left * 2.0f, seperator_height}, 
                    props.color, LF_NO_COLOR, 0, props.corner_radius);
 
     state.pos_ptr.y -= props.margin_top;

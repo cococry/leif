@@ -60,6 +60,8 @@ typedef struct {
     uint32_t tex_width, tex_height;
     uint32_t line_gap_add, font_size;
     LfTexture bitmap;
+
+    uint32_t num_glyphs;
 } LfFont;
 
 typedef enum {
@@ -109,8 +111,8 @@ typedef enum {
 
 
 typedef struct {
-    LfColor color;
-    LfColor text_color;
+    LfColor color, hover_color;
+    LfColor text_color, hover_text_color;
     LfColor border_color;
     float padding;
     float margin_left;
@@ -132,6 +134,7 @@ typedef struct {
     bool div_smooth_scroll;
     float div_scroll_acceleration, div_scroll_max_veclocity;
     float div_scroll_amount_px;
+    float div_scroll_velocity_deceleration;
 
     float scrollbar_width;
 } LfTheme;

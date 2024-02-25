@@ -11,11 +11,6 @@ lib/leif.o: lib
 lib:
 	mkdir lib
 clean:
-	rm -r ./lib
-
-install:
-	sudo cp lib/libleif.a /usr/local/lib/ 
-	sudo cp -r include/leif /usr/local/include/ 
-	cp -r .leif ~/
+	rm -r ./lib 
 
 .PHONY: all test clean
