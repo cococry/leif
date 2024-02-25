@@ -1,4 +1,4 @@
-#include "include/leif.h"
+#include "include/leif/leif.h"
 #include <cglm/mat4.h>
 #include <cglm/types-struct.h>
 #include <ctype.h>
