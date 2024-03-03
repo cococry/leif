@@ -1,4 +1,4 @@
-#include "include/leif/leif.h"
+#include "include/leif.h"
 #include <cglm/mat4.h>
 #include <cglm/types-struct.h>
 #include <ctype.h>
@@ -10,6 +10,8 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <stb_image_resize2.h>
 #include <GLFW/glfw3.h>
+
+#include <libclipboard.h>
 
 #include <locale.h>
 #include <stdbool.h>
@@ -195,6 +197,8 @@ typedef struct {
     bool entered_div;
 
     bool div_velocity_accelerating;
+
+    clipboard_c* clipboard;
 } LfState;
 
 typedef enum {
@@ -240,8 +244,12 @@ static int32_t                  menu_item_list_item_loc(void** items, uint32_t i
 static int32_t                  get_max_char_height_font(LfFont font);
 static double                   get_char_width(LfFont font, char c);
 static float                    get_kerning(int32_t prev_character_codepoint, int current_character_codepoint);
+
 static void                     remove_i_str(char *str, int32_t index);
+static void                     remove_substr_str(char *str, int start_index, int end_index);
 static void                     insert_i_str(char *str, char ch, int32_t index);
+static void                     insert_str_str(char *source, const char *insert, int32_t index);
+static void                     substr_str(const char* str, int start_index, int end_index, char* substring);
 
 // --- Input ---
 #ifdef LF_GLFW
@@ -541,7 +549,6 @@ LfTexture lf_load_texture(const char* filepath, bool flip, LfTextureFiltering fi
 
     return tex;
 }
-
 
 LfTexture lf_load_texture_resized(const char* filepath, bool flip, LfTextureFiltering filter, uint32_t w, uint32_t h) {
      LfTexture tex;
@@ -975,7 +982,7 @@ LfClickableItemState div_container(vec2s pos, vec2s size, LfUIElementProps props
 
 }
 LfTextProps text_render_simple(vec2s pos, const char* text, LfFont font, LfColor font_color, bool no_render) {
-    return lf_text_render(pos, text, font, -1, no_render, font_color);
+    return lf_text_render(pos, text, font, font_color, -1, (vec2s){-1, -1}, no_render, false, -1, -1);
 }
 LfTextProps text_render_simple_wide(vec2s pos, const wchar_t* text, LfFont font, LfColor font_color, bool no_render) {
     return lf_text_render_wchar(pos, text, font, -1, no_render, font_color);
@@ -1263,160 +1270,248 @@ void lf_image_render(vec2s pos, LfColor color, LfTexture tex, LfColor border_col
     state.render.index_count += 6;
 }
 
+static void input_field_unselect_all(LfInputField* input) {
+    input->selection_start = -1;
+    input->selection_end = -1;
+}
+
+
+
 void input_field(LfInputField* input, InputFieldType type, const char* file, int32_t line) {
     if(!input->buf) return;
 
-    // Getting the property data of the input field
-    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
-    float padding = props.padding;
-    float margin_left = props.margin_left;
-    float margin_right = props.margin_right;
-    float margin_top = props.margin_top;
-    float margin_bottom = props.margin_bottom;
-    float border_width = props.border_width;
+    if(!input->_init) {
+        input_field_unselect_all(input);
+        input->_init = true;
+    }
 
-    LfColor color = props.color;
-    LfColor text_color = props.text_color;
+    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.inputfield_props;
     LfFont font = get_current_font();
 
-    // If the object cannot be fully rendered on the current line, advance one line down
-    next_line_on_overflow(
-        (vec2s){input->width + padding * 2.0f + margin_left + margin_right + border_width * 2.0f,
-                    input->height + padding * 2.0f + margin_top + margin_bottom + border_width * 2.0f}, 
-        state.div_props.border_width
-    );
-    // Adding the margins to the position pointer
-    state.pos_ptr.x += margin_left + border_width;
-    state.pos_ptr.y += margin_top + border_width;
+    state.pos_ptr.x += props.margin_left; 
+    state.pos_ptr.y += props.margin_top; 
+
+    float wrap_point = state.pos_ptr.x + input->width - props.padding;
+
     if(input->selected) {
-        // Handeling key input of the inputfiled
-        if(lf_key_went_down(GLFW_KEY_BACKSPACE)) {
-            if(input->cursor_index - 1 >= 0) {
-                remove_i_str(input->buf, input->cursor_index - 1);
-                input->cursor_index--;
+        if(lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && (lf_get_mouse_x_delta() == 0 && lf_get_mouse_y_delta() == 0)) {
+            LfTextProps selected_props = lf_text_render((vec2s){
+                state.pos_ptr.x + props.padding, 
+                state.pos_ptr.y + props.padding
+            }, input->buf, font, LF_NO_COLOR, 
+            wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
+            input->cursor_index = selected_props.rendered_count;
+            input_field_unselect_all(input);
+            input->mouse_selection_end = input->cursor_index;
+            input->mouse_selection_start = input->cursor_index;
+        } else if(lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT) && (lf_get_mouse_x_delta() != 0 || lf_get_mouse_y_delta() != 0)) {
+            if(input->mouse_dir == 0) {
+                input->mouse_dir = (lf_get_mouse_x_delta() < 0) ? -1 : 1;
+                input->mouse_selection_end = input->cursor_index;
+                input->mouse_selection_start = input->cursor_index;
             }
-        }
-        if(lf_key_went_down(GLFW_KEY_RIGHT)) {
-            if(input->cursor_index <= (int32_t)strlen(input->buf) - 1) {
-                input->cursor_index++;
+            LfTextProps selected_props = lf_text_render((vec2s){
+                state.pos_ptr.x + props.padding, 
+                state.pos_ptr.y + props.padding
+            }, input->buf, font, LF_NO_COLOR, 
+            wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
+
+            input->cursor_index = selected_props.rendered_count;
+
+            if(input->mouse_dir == -1) 
+                input->mouse_selection_start = input->cursor_index;
+            else if(input->mouse_dir == 1)
+                input->mouse_selection_end = input->cursor_index;
+
+            input->selection_start = input->mouse_selection_start;
+            input->selection_end = input->mouse_selection_end;
+
+            if(input->mouse_selection_start == input->mouse_selection_end) {
+                input->mouse_dir = (lf_get_mouse_x_delta() < 0) ? -1 : 1;
             }
+        } else if(lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT)){
+            input->mouse_dir = 0;
+        } 
+        if(lf_char_event().happened && lf_char_event().charcode >= 0 && lf_char_event().charcode <= 127) { 
+            input_field_unselect_all(input);
+            insert_i_str(input->buf, lf_char_event().charcode, input->cursor_index++);
         }
-        if(lf_key_went_down(GLFW_KEY_LEFT)) {
-            if(input->cursor_index - 1 >= 0)
-                input->cursor_index--;
-        }
-    }
-    if(input->selected && !input->reached_stop && (input->max_chars != 0 && strlen(input->buf) < input->max_chars) || (input->max_chars == 0)) {
-        if(lf_key_went_down(GLFW_KEY_ENTER) && input->expand_on_overflow) {
-            insert_i_str(input->buf, '\n', input->cursor_index);
-            input->cursor_index++;
-        }
-        if(lf_key_went_down(GLFW_KEY_TAB)) {
-            for(uint32_t i = 0; i < 4; i++) {
-                insert_i_str(input->buf, ' ', input->cursor_index);
-                input->cursor_index++;
-            }
-        }
-        if(state.ch_ev.happened && !input->reached_stop) {
-            switch(type) {
-                case INPUT_FLOAT: {
-                    char* end_ptr;
-                    double val;
-                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
-                    val = strtod(input->buf,&end_ptr);
-                    if(*end_ptr == '\0') {
-                        input->cursor_index++;
+
+        if(lf_key_event().happened && lf_key_event().pressed) {
+            switch(lf_key_event().keycode) {
+                case GLFW_KEY_BACKSPACE: {
+                    if(input->selection_start != -1) {
+                        //bool selected_all = input->selection_start == 0 && input->selection_end == strlen(input->buf);
+                        remove_substr_str(input->buf, input->selection_start - 1, input->selection_end);
+                        input->cursor_index = input->selection_start;
+                        input_field_unselect_all(input);
+                    }
+                    else {
+                        if(input->cursor_index - 1 < 0) break;
+                        remove_i_str(input->buf, input->cursor_index - 1);
+                        input->cursor_index--;
+                    }
+                    break;
+                }
+                case GLFW_KEY_LEFT: {
+                    if(input->cursor_index - 1 < 0 ) {
+                        if(!lf_key_is_down(GLFW_KEY_LEFT_SHIFT))
+                            input_field_unselect_all(input);
+                        break;
+                    }
+                    if(lf_key_is_down(GLFW_KEY_LEFT_SHIFT)) {
+                        if(input->selection_end == -1) {
+                            input->selection_end = input->cursor_index - 1;
+                            input->selection_dir = -1;
+                        }
+                        input->cursor_index--;
+                        if(input->selection_dir == 1) {
+                            if(input->cursor_index != input->selection_start) {
+                                input->selection_end = input->cursor_index - 1;
+                            } else { 
+                                input_field_unselect_all(input);
+                            }
+                        } else {
+                            input->selection_start = input->cursor_index;
+                        }
                     } else {
-                        remove_i_str(input->buf, input->cursor_index);
-                    }
-                    if(input->char_callback != NULL)
-                        input->char_callback(state.ch_ev.charcode);
-                    break;
-                }
-                case INPUT_INT: {
-                    if(isdigit(state.ch_ev.charcode)) {
-                        insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
-                        input->cursor_index++;
-                        if(input->char_callback != NULL)
-                            input->char_callback(state.ch_ev.charcode);
+                        if(input->selection_end == -1)
+                            input->cursor_index--;
+                        input_field_unselect_all(input);
                     }
                     break;
                 }
-                case INPUT_TEXT: {
-                    insert_i_str(input->buf, state.ch_ev.charcode, input->cursor_index);
-                    input->cursor_index++;
-                    if(input->char_callback != NULL)
-                        input->char_callback(state.ch_ev.charcode);
+                case GLFW_KEY_RIGHT: {
+                    if(input->cursor_index + 1 > strlen(input->buf)){
+                        if(!lf_key_is_down(GLFW_KEY_LEFT_SHIFT))
+                            input_field_unselect_all(input);
+                        break;
+                    }
+                    if(lf_key_is_down(GLFW_KEY_LEFT_SHIFT)) {
+                        if(input->selection_start == -1) {
+                            input->selection_start = input->cursor_index;
+                            input->selection_dir = 1;
+                        }
+                        if(input->selection_dir == -1) {
+                            input->cursor_index++;
+                            if(input->cursor_index - 1 != input->selection_end) {
+                                input->selection_start = input->cursor_index;
+                            } else {
+                                input_field_unselect_all(input);
+                            }
+                        } else {
+                            input->selection_end = input->cursor_index;
+                            input->cursor_index++;
+                        }
+                    } else {
+                        if(input->selection_end == -1)
+                            input->cursor_index++;
+                        input_field_unselect_all(input);
+                    }
                     break;
                 }
+                case GLFW_KEY_ENTER: {
+                    insert_i_str(input->buf, '\n', input->cursor_index++);
+                    break;
+                }
+                case GLFW_KEY_TAB: {
+                    for(uint32_t i = 0; i < 2; i++) {
+                        insert_i_str(input->buf, ' ', input->cursor_index++);
+                    }
+                    break;
+                } 
+            }
+       }
+    }
+
+
+    if(lf_key_is_down(GLFW_KEY_LEFT_CONTROL)) {
+        if(lf_key_went_down(GLFW_KEY_A)) {
+            bool selected_all = input->selection_start == 0 && input->selection_end == strlen(input->buf);
+            if(selected_all) {
+                input_field_unselect_all(input);
+            } else {
+                input->selection_start = 0;
+                input->selection_end = strlen(input->buf);
             }
         }
+        if(lf_key_went_down(GLFW_KEY_C)) {
+            char selection[strlen(input->buf)];
+            memset(selection, 0, strlen(input->buf));
+            substr_str(input->buf, input->selection_start, input->selection_end, selection);
+
+            clipboard_set_text(state.clipboard, selection);
+        }
+        if(lf_key_went_down(GLFW_KEY_V)) {
+            const char* clipboard_content = clipboard_text(state.clipboard);
+
+            insert_str_str(input->buf, clipboard_content, input->cursor_index);
+            input->cursor_index += strlen(clipboard_content);
+
+            input_field_unselect_all(input);
+        }
     }
+    LfTextProps textprops =  lf_text_render((vec2s){state.pos_ptr.x + props.padding, state.pos_ptr.y + props.padding}, input->buf, 
+                                            font, LF_NO_COLOR, 
+                                            wrap_point, (vec2s){-1, -1}, true, false, -1, -1); 
 
-    LfTextProps text_props_post_input = lf_text_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding},
-                                                    input->buf, font, 
-                                                    input->expand_on_overflow ? state.pos_ptr.x + input->width - padding : -1, true, text_color);
+    next_line_on_overflow(
+        (vec2s){input->width + props.padding * 2.0f + props.margin_right + props.margin_left, 
+                    input->height + props.padding * 2.0f + props.margin_bottom + props.margin_top}, state.div_props.border_width);
 
-    
-    if(!input->expand_on_overflow)
-        input->reached_stop = text_props_post_input.width > input->width - padding;
-    // Rendering the input field
+    input->height = (input->start_height) ? MAX(input->start_height, textprops.height) : (textprops.height ? textprops.height : get_max_char_height_font(font)); 
 
-    if(!input->height) {
-        input->height = get_max_char_height_font(font); 
+    LfAABB input_aabb = (LfAABB){
+        .pos = state.pos_ptr, 
+        .size = (vec2s){input->width + props.padding * 2.0f, input->height + props.padding * 2.0f}
     };
-    if(text_props_post_input.height > input->height) {
-        input->height = text_props_post_input.height;
-    }
-    LfClickableItemState item = button(file, line, state.pos_ptr,
-                                               (vec2s){input->width + padding * 2.0f, input->height + padding * 2.0f},
-                                                props, color, border_width, false,false);
 
-    // Handeling selecting the input field
-    if(item == LF_CLICKED && !input->selected) {
+    LfClickableItemState inputfield = button(file, line, input_aabb.pos, input_aabb.size, props, props.color, props.border_width, false, false);
+
+    if(inputfield == LF_CLICKED) {
         input->selected = true;
-        input->cursor_index = strlen(input->buf);
-    }  else if(item == LF_IDLE && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && input->selected) {
+        LfTextProps selected_props = lf_text_render((vec2s){
+            state.pos_ptr.x + props.padding, 
+            state.pos_ptr.y + props.padding
+        }, input->buf, font, LF_NO_COLOR, 
+        wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
+        input->cursor_index = selected_props.rendered_count;
+    } else if(lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT) && input->selected && inputfield == LF_IDLE && input->selection_start == -1) {
         input->selected = false;
     }
 
-    // Rendering the text in the input field
-    LfTextProps text_props_rendered = lf_text_render((vec2s){(state.pos_ptr.x + padding),
-        state.pos_ptr.y + padding}, input->buf,
-                                                     font, input->expand_on_overflow ? state.pos_ptr.x + input->width - padding : -1, false, text_color);
+    lf_set_cull_end_y(state.pos_ptr.y + input->height + props.padding * 2.0f);
+    lf_unset_cull_end_y();
 
-    // Handleing the cursor indicator
     if(input->selected) {
-        // Getting the part of the text that is before the cursor
-        char cursor_slice[strlen(input->buf)];
-        for(uint32_t i = 0; i <= (uint32_t)input->cursor_index; i++) {
-            cursor_slice[i] = input->buf[i];
+        char selected_buf[strlen(input->buf)];
+        strncpy(selected_buf, input->buf, input->cursor_index);
+        selected_buf[input->cursor_index] = '\0';
+
+        LfTextProps selected_props =  lf_text_render((vec2s){state.pos_ptr.x + props.padding, lf_get_mouse_y() + props.padding}, selected_buf, 
+                                                     font, LF_NO_COLOR, wrap_point, (vec2s){-1, -1}, true, false, -1, -1);
+
+        vec2s cursor_pos = 
+            {
+                (strlen(input->buf) > 0) ? selected_props.end_x : state.pos_ptr.x + props.padding, 
+                state.pos_ptr.y + props.padding + (selected_props.height - get_max_char_height_font(font)) 
+            }; 
+        if(input->selection_start == -1 || input->selection_end == -1) {
+            lf_rect_render(cursor_pos, (vec2s){1, get_max_char_height_font(font)}, props.text_color, 
+                           LF_NO_COLOR, 0.0f, 0.0f);
+        } else {
+            lf_text_render((vec2s){state.pos_ptr.x + props.padding, 
+                state.pos_ptr.y + props.padding}, input->buf, font, (LfColor){255, 255, 255, 80}, wrap_point, (vec2s){-1, -1}, 
+                           false, true, input->selection_start, input->selection_end + 1);
         }
-        cursor_slice[input->cursor_index] = '\0';
-
-        LfTextProps cursor_pos_props = lf_text_render((vec2s){(float)text_props_rendered.end_x - text_props_rendered.width,
-            state.pos_ptr.y + padding}, cursor_slice,
-                                                      font, input->expand_on_overflow ? state.pos_ptr.x + input->width - padding : -1, true, text_color);
-
-        // Rendering the cursor indicator
-        lf_rect_render((vec2s){(strlen(input->buf) != 0) ? cursor_pos_props.end_x : state.pos_ptr.x + padding,
-                    state.pos_ptr.y + (input->expand_on_overflow ? (cursor_pos_props.height - get_max_char_height_font(font)) : 0) + padding},
-                    (vec2s){1, (float)get_max_char_height_font(font)}, props.text_color, (LfColor){0, 0, 0, 0}, 0.0f, 0.0f);
-    } else if(!input->selected && strlen(input->buf) == 0) {
-        // Rendering the placeholder
-        lf_text_render((vec2s){(state.pos_ptr.x + padding),
-        state.pos_ptr.y + padding},
-                    !input->placeholder ? "Type..." : input->placeholder, font, -1, false, text_color);
     }
-    // Advancing the position pointer by the size of the inputf ield
-    state.pos_ptr.x += input->width + margin_right + padding * 2.0f + border_width;
-    state.pos_ptr.y -= margin_top + border_width;
 
-    // Setting the value pointer
-    if(type == INPUT_FLOAT)
-        *(float*)input->val = atof(input->buf);
-    else if(type == INPUT_INT)
-        *(int32_t*)input->val = atoi(input->buf);
+    lf_text_render((vec2s){state.pos_ptr.x + props.padding, state.pos_ptr.y + props.padding}, (!strlen(input->buf) && !input->selected) ? input->placeholder : input->buf, font, props.text_color, 
+                   wrap_point, (vec2s){-1, -1}, false, false, -1, -1); 
+
+
+    state.pos_ptr.x += input->width + props.margin_right + props.padding * 2.0f;
+    state.pos_ptr.y -= props.margin_top;
 }
 
 
@@ -1430,7 +1525,7 @@ float get_kerning(int32_t prev_character_codepoint, int current_character_codepo
 static int32_t get_max_char_height_font(LfFont font) {
     float fontScale = stbtt_ScaleForPixelHeight((stbtt_fontinfo*)font.font_info, font.font_size);
     int32_t xmin, ymin, xmax, ymax;
-    int32_t codepoint = 'y';
+    int32_t codepoint = 'p';
     stbtt_GetCodepointBitmapBox((stbtt_fontinfo*)font.font_info, codepoint, fontScale, fontScale, &xmin, &ymin, &xmax, &ymax);
     return ymax - ymin;
 }
@@ -1444,11 +1539,19 @@ void remove_i_str(char *str, int32_t index) {
         str[len - 1] = '\0';
     }
 }
+
+void remove_substr_str(char *str, int start_index, int end_index) {
+    int len = strlen(str);
+
+    memmove(str + start_index, str + end_index + 1, len - end_index);
+    str[len - (end_index - start_index) + 1] = '\0'; // Ensure string termination after modification
+}
+
 void insert_i_str(char *str, char ch, int32_t index) {
-     int len = strlen(str);
+    int len = strlen(str);
 
     if (index < 0 || index > len) {
-        LF_ERROR("Invalid string index for inserting.");;
+        printf("Invalid string index for inserting.\n");
         return;
     }
 
@@ -1457,8 +1560,28 @@ void insert_i_str(char *str, char ch, int32_t index) {
     }
 
     str[index] = ch;
+    str[len + 1] = '\0'; // Ensure string termination after modification
 }
 
+void insert_str_str(char* source, const char* insert, int32_t index) {
+    int source_len = strlen(source);
+    int insert_len = strlen(insert);
+
+    if (index < 0 || index > source_len) {
+        printf("Index out of bounds\n");
+        return;
+    }
+
+    memmove(source + index + insert_len, source + index, source_len - index + 1);
+
+    memcpy(source + index, insert, insert_len);
+}
+
+void substr_str(const char* str, int start_index, int end_index, char* substring) {
+    int substring_length = end_index - start_index + 1; 
+    strncpy(substring, str + start_index, substring_length);
+    substring[substring_length] = '\0';
+}
 
 LfTexture lf_load_texture_asset(const char* asset_name, const char* file_extension) {
     char leif_dir[strlen(getenv(HOMEDIR)) + strlen("/.leif")];
@@ -1835,8 +1958,8 @@ int32_t menu_item_list_item_loc(void** items, uint32_t item_count, int32_t selec
     return clicked_item;
 }
 
-LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap_point, bool no_render, 
-                        LfColor color) { 
+LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, LfColor color, 
+                           int32_t wrap_point, vec2s stop_point, bool no_render, bool render_solid, int32_t start_index, int32_t end_index) { 
     bool culled = item_should_cull((LfAABB){.pos = (vec2s){pos.x, pos.y + get_current_font().font_size}, .size = (vec2s){-1, -1}});
 
     float tex_index = -1.0f;
@@ -1872,11 +1995,22 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
     int32_t height = get_max_char_height_font(font);
     float width = 0;
 
+    mat4 translate; 
+    mat4 scale;
+    mat4 transform;
+    glm_translate_make(translate, (vec3){pos.x, pos.y, 0.0f});
+    glm_scale_make(scale, (vec3){get_max_char_height_font(font), get_max_char_height_font(font), 0.0f});
+    glm_mat4_mul(translate,scale,transform);
+
+    int32_t i = 0;
     while(*str) { 
         bool skip = false;
         if(*str >= font.num_glyphs) {
-            skip = true;
+            goto next_iter; 
         } 
+        if(i >= end_index && end_index != -1) {
+            break;
+        }
         // If the current character is a new line or the wrap point has been reached, advance to the next line
         if(*str == '\n' || (x >= wrap_point && wrap_point != -1)) {
             y += font.font_size;
@@ -1887,15 +2021,27 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
             x = pos.x;
             last_x = x;
             if(*str == ' ') {
-                skip = true; 
+                goto next_iter; 
             }
         }
-        if(!skip) {
-            // Retrieving the vertex data of the current character & submitting it to the batch  
-            stbtt_aligned_quad q;
-            stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
+        // Retrieving the vertex data of the current character & submitting it to the batch  
+        stbtt_aligned_quad q;
+        stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
 
-            if(!culled && !no_render)  {
+        if(i < start_index && start_index != -1) {
+            last_x = x;
+            ret.rendered_count++;
+            goto next_iter;
+            continue;
+        }
+        if(x >= stop_point.x && stop_point.x != -1 && y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
+            break;
+        }
+
+        if(!culled && !no_render) {
+            if(render_solid) {
+                lf_rect_render((vec2s){x, y}, (vec2s){last_x - x, font.font_size}, color, LF_NO_COLOR, 0.0f, 0.0f);
+            } else {
                 vec2s texcoords[4] = {
                     q.s0, q.t0, 
                     q.s1, q.t0, 
@@ -1945,12 +2091,15 @@ LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, int32_t wrap
 
                     state.render.vert_count++;
                 }
-                state.render.index_count += 6;
-
+                state.render.index_count += 6; 
             }
-            last_x = x;
         }
-        str++;
+        last_x = x;
+        ret.rendered_count++;
+        goto next_iter;
+next_iter:
+    str++;
+    i++;
     }
 
     // Populating the return value
@@ -2178,7 +2327,9 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_wi
     state.text_wrap = false;
     state.line_overflow = true;
     state.theme = lf_default_theme();
-    
+   
+    state.clipboard = clipboard_new(NULL);
+
     state.drawcalls = 0;
 
     // Setting glfw callbacks
@@ -2664,9 +2815,24 @@ vec2s lf_text_dimension(const char* str) {
     return (vec2s){(float)props.width, (float)props.height};
 }
 
+vec2s lf_text_dimension_ex(const char* str, float wrap_point) {
+    LfFont font = get_current_font();
+    LfTextProps props = lf_text_render((vec2s){0.0f, 0.0f}, str, font, state.theme.text_props.text_color, wrap_point, 
+                                       (vec2s){-1, -1}, true, false, -1, -1);
+
+    return (vec2s){(float)props.width, (float)props.height};
+}
+
 vec2s lf_text_dimension_wide(const wchar_t* str) {
     LfFont font = get_current_font();
     LfTextProps props = text_render_simple_wide((vec2s){0.0f, 0.0f}, str, font, state.theme.text_props.text_color, true);
+
+    return (vec2s){(float)props.width, (float)props.height};
+}
+
+vec2s lf_text_dimension_wide_ex(const wchar_t* str, float wrap_point) {
+    LfFont font = get_current_font();
+    LfTextProps props = lf_text_render_wchar((vec2s){0.0f, 0.0f}, str, font, wrap_point, true, state.theme.text_props.text_color);
 
     return (vec2s){(float)props.width, (float)props.height};
 }
@@ -2683,13 +2849,18 @@ void lf_text(const char* text) {
     float padding = props.padding;
     float margin_left = props.margin_left, margin_right = props.margin_right, 
         margin_top = props.margin_top, margin_bottom = props.margin_bottom;
+
     LfColor text_color = props.text_color;
     LfColor color = props.color;
     LfFont font = get_current_font();
 
     // Advancing to the next line if the the text does not fit on the current div
-    LfTextProps text_props = lf_text_render(state.pos_ptr, text, font, 
-                                        state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left : -1, true, text_color);
+    LfTextProps text_props = lf_text_render(state.pos_ptr, text, font, text_color, 
+                                        state.text_wrap ? 
+                                            (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left 
+                                        : 
+                                            -1, 
+                                        (vec2s){-1, -1}, true, false, -1, -1);
     next_line_on_overflow(
         (vec2s){text_props.width + padding * 2.0f + margin_left + margin_right,
                     text_props.height + padding * 2.0f + margin_top + margin_bottom}, 
@@ -2701,8 +2872,11 @@ void lf_text(const char* text) {
 
     // Rendering a colored text box if a color is specified
     // Rendering the text
-    lf_text_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, text, font, 
-                state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left : -1, false, text_color);
+    lf_text_render((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, text, font, text_color, 
+                state.text_wrap ? 
+                   (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left 
+                : 
+                   -1, (vec2s){-1, -1}, false, false, -1, -1);
 
     // Advancing the position pointer by the width of the text
     state.pos_ptr.x += text_props.width + margin_right + padding;
@@ -3090,7 +3264,7 @@ LfScrollEvent lf_mouse_scroll_event() {
     return state.scr_ev;
 }
 
-LfKeyEvent lf_key_event_event() {
+LfKeyEvent lf_key_event() {
     return state.key_ev;
 }
 
