@@ -32,6 +32,7 @@ that the library ueses is OpenGL.
 | [stb_image_resize2](https://github.com/nothings/stb/blob/master/stb_image_resize2.h) | Resizing images |
 | [stb_truetype](https://github.com/nothings/stb/blob/master/stb_truetype.h) | Loading font glyphs from font files |
 | [cglm](https://github.com/recp/cglm) | Linear Algebra Math | 
+| [libclipboard](https://github.com/jtanx/libclipboard) | Managing clipboard for input fields | 
 | [*GLFW](https://github.com/glfw/glfw) | Handling windowing, input etc. | 
 
 *: This library is an optional library and will be replacable with other libraries
