@@ -1,4 +1,4 @@
-# leif
+# Leif
 
 ## Overview
 
@@ -32,7 +32,6 @@ that the library ueses is OpenGL.
 | [stb_image_resize2](https://github.com/nothings/stb/blob/master/stb_image_resize2.h) | Resizing images |
 | [stb_truetype](https://github.com/nothings/stb/blob/master/stb_truetype.h) | Loading font glyphs from font files |
 | [cglm](https://github.com/recp/cglm) | Linear Algebra Math | 
-| [libclipboard](https://github.com/jtanx/libclipboard) | Managing clipboard for input fields | 
 | [*GLFW](https://github.com/glfw/glfw) | Handling windowing, input etc. | 
 
 *: This library is an optional library and will be replacable with other libraries
@@ -52,18 +51,10 @@ sudo pacman -S gcc make glfw cglm
 sudo apt install gcc make libglfw3 libglfw3-dev libcglm-dev
 ```
 
-### Building the library
-
-#### Generate static library
+#### Building the library
 ```console
 make
 ```
-
-#### Install the library 
-```console 
-sudo make install 
-```
-
 
 ## Usage
 
@@ -180,16 +171,9 @@ lf_end();
 
 <img src="https://github.com/cococry/Leif/blob/main/branding/div-showcase.gif" width="375px"/> 
 
-## Real world usage
-
-But how does the leif library perform in real applications? I am currently working on a music player called [lyssa](https://github.com/cococry/lyssa). The frontend of the player
-is written entirely with leif. You can see a brief look at of the application below.
-
-<img src="https://github.com/cococry/lyssa/blob/main/branding/lyssa-showcase.png" width="1000px"/> 
-
 ## Contributing
 
-You can contribute to Leif by:
+You can contribue to Lyssa by:
   - [Fixing bugs or contributing to features](https://github.com/cococry/lyssa/issues)
   - [Changing features or adding new functionality](https://github.com/cococry/lyssa/pulls)
 
