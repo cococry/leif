@@ -1,4 +1,4 @@
-#include "include/leif.h"
+#include "include/leif/leif.h"
 #include <cglm/mat4.h>
 #include <cglm/types-struct.h>
 #include <ctype.h>
@@ -2493,12 +2493,7 @@ LfClickableItemState _lf_slider_int_loc(LfSlider* slider, const char* file, int3
 
   // Check if the slider bar is pressed
 
-  if(slider_state == LF_CLICKED) {
-    slider->handle_pos = lf_get_mouse_x() - state.pos_ptr.x;
-    *(int32_t*)slider->val = map_vals(slider->handle_pos, 0, slider_width, 
-                                      slider->min, slider->max);
-  }
-  if(slider_state == LF_HELD) {
+  if(slider_state == LF_HELD || slider_state == LF_CLICKED) {
     slider->held = true;
   }
   if(slider->held && lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT)) {
