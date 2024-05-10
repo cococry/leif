@@ -1,7 +1,6 @@
 #include "include/leif/leif.h"
 #include <cglm/mat4.h>
 #include <cglm/types-struct.h>
-#include <ctype.h>
 #include <glad/glad.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -23,7 +22,6 @@
 #include <limits.h>
 #include <wchar.h>
 #include <wctype.h>
-#include <math.h>
 
 #ifdef _WIN32
 #define HOMEDIR "USERPROFILE"
@@ -221,8 +219,6 @@ static void                     renderer_begin();
 static LfTextProps              text_render_simple(vec2s pos, const char* text, LfFont font, LfColor font_color, bool no_render);
 static LfTextProps              text_render_simple_wide(vec2s pos, const wchar_t* text, LfFont font, LfColor font_color, bool no_render);
 
-// --- UI ---
-static bool                     area_hovered(vec2s pos, vec2s size);
 
 static LfClickableItemState     button_ex(const char* file, int32_t line, vec2s pos, vec2s size, LfUIElementProps props, LfColor color, float border_width, bool click_color, bool hover_color, vec2s hitbox_override);
 static LfClickableItemState     button(const char* file, int32_t line, vec2s pos, vec2s size, LfUIElementProps props, LfColor color, float border_width, bool click_color, bool hover_color);
@@ -231,7 +227,6 @@ static void                     next_line_on_overflow(vec2s size, float xoffset)
 static bool                     item_should_cull(LfAABB item);
 static void                     draw_scrollbar_on(LfDiv* div);
 
-static void                     input_field_unselect_all(LfInputField* input);
 static void                     input_field(LfInputField* input, InputFieldType type, const char* file, int32_t line);
 
 LfFont                          load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
@@ -587,11 +582,6 @@ LfTextProps text_render_simple_wide(vec2s pos, const wchar_t* text, LfFont font,
   return lf_text_render_wchar(pos, text, font, -1, no_render, font_color);
 }
 
-bool area_hovered(vec2s pos, vec2s size) {
-  bool hovered = lf_get_mouse_x() <= (pos.x + size.x) && lf_get_mouse_x() >= (pos.x) && 
-    lf_get_mouse_y() <= (pos.y + size.y) && lf_get_mouse_y() >= (pos.y);
-  return hovered;
-}
 
 LfClickableItemState button(const char* file, int32_t line, vec2s pos, vec2s size, LfUIElementProps props, LfColor color, float border_width,  bool click_color, bool hover_color) {
   return button_ex(file, line, pos, size, props, color, border_width, click_color, hover_color, (vec2s){-1, -1}); 
@@ -683,15 +673,14 @@ bool item_should_cull(LfAABB item) {
   bool intersect = true;
   LfAABB window =  (LfAABB){.pos = (vec2s){0, 0}, .size = (vec2s){state.dsp_w, state.dsp_h}};
   if(item.size.x == -1 || item.size.y == -1) {
-    item.pos.y += get_current_font().font_size;
-    intersect = lf_point_intersects_aabb(item.pos, window);
-  } else { 
-    if (item.pos.x + item.size.x <= window.pos.x || item.pos.x >= window.pos.x + window.size.x)
-      intersect = false;
+    item.size.x = state.dsp_w;
+    item.size.y = get_current_font().font_size;
+  }  
+  if (item.pos.x + item.size.x <= window.pos.x || item.pos.x >= window.pos.x + window.size.x)
+    intersect = false;
 
-    if (item.pos.y + item.size.y <= window.pos.y || item.pos.y >= window.pos.y + window.size.y)
-      intersect = false;
-  }
+  if (item.pos.y + item.size.y <= window.pos.y || item.pos.y >= window.pos.y + window.size.y)
+    intersect = false;
 
   return !intersect && state.current_div.id == state.scrollbar_div.id;
 
@@ -717,7 +706,7 @@ void draw_scrollbar_on(LfDiv* div) {
     float total_area = selected->total_area.y - scroll;
     float visible_area = selected->aabb.size.y + selected->aabb.pos.y;
     if(total_area > visible_area) {
-      const float min_scrollbar_height = 10;
+      const float min_scrollbar_height = 20;
 
       float area_mapped = visible_area/total_area; 
       float scroll_mapped = (-1 * scroll)/total_area;
@@ -736,17 +725,11 @@ void draw_scrollbar_on(LfDiv* div) {
   }
 }
 
-void input_field_unselect_all(LfInputField* input) {
-  input->selection_start = -1;
-  input->selection_end = -1;
-  input->selection_dir = 0;
-}
-
 void input_field(LfInputField* input, InputFieldType type, const char* file, int32_t line) {
   if(!input->buf) return;
 
   if(!input->_init) {
-    input_field_unselect_all(input);
+    lf_input_field_unselect_all(input);
     input->_init = true;
   }
 
@@ -766,7 +749,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
       }, input->buf, font, LF_NO_COLOR, 
                                                   wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
       input->cursor_index = selected_props.rendered_count;
-      input_field_unselect_all(input);
+      lf_input_field_unselect_all(input);
       input->mouse_selection_end = input->cursor_index;
       input->mouse_selection_start = input->cursor_index;
     } else if(lf_mouse_button_is_down(GLFW_MOUSE_BUTTON_LEFT) && (lf_get_mouse_x_delta() != 0 || lf_get_mouse_y_delta() != 0)) {
@@ -778,8 +761,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
       LfTextProps selected_props = lf_text_render((vec2s){
         state.pos_ptr.x + props.padding, 
         state.pos_ptr.y + props.padding
-      }, input->buf, font, LF_NO_COLOR, 
-                                                  wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
+      }, input->buf, font, LF_NO_COLOR, wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
 
       input->cursor_index = selected_props.rendered_count;
 
@@ -798,9 +780,12 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
       input->mouse_dir = 0;
     } 
     if(lf_char_event().happened && lf_char_event().charcode >= 0 && lf_char_event().charcode <= 127 &&
-      strlen(input->buf) + 1 <= input->buf_size) { 
-      input_field_unselect_all(input);
-      insert_i_str(input->buf, lf_char_event().charcode, input->cursor_index++);
+      strlen(input->buf) + 1 <= input->buf_size && strlen(input->buf) + 1 <= input->max_chars) { 
+      if(input->insert_override_callback) {
+        input->insert_override_callback(input);
+      } else {
+        lf_input_insert_char_idx(input, lf_char_event().charcode, input->cursor_index++);
+      }
     }
 
     if(lf_key_event().happened && lf_key_event().pressed) {
@@ -813,7 +798,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
             remove_substr_str(input->buf, start, end);
 
             input->cursor_index = input->selection_start;
-            input_field_unselect_all(input);
+            lf_input_field_unselect_all(input);
           }
           else {
             if(input->cursor_index - 1 < 0) break;
@@ -825,7 +810,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
         case GLFW_KEY_LEFT: {
           if(input->cursor_index - 1 < 0 ) {
             if(!lf_key_is_down(GLFW_KEY_LEFT_SHIFT))
-              input_field_unselect_all(input);
+              lf_input_field_unselect_all(input);
             break;
           }
           if(lf_key_is_down(GLFW_KEY_LEFT_SHIFT)) {
@@ -838,7 +823,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
               if(input->cursor_index != input->selection_start) {
                 input->selection_end = input->cursor_index - 1;
               } else { 
-                input_field_unselect_all(input);
+                lf_input_field_unselect_all(input);
               }
             } else {
               input->selection_start = input->cursor_index;
@@ -846,14 +831,14 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           } else {
             if(input->selection_end == -1)
               input->cursor_index--;
-            input_field_unselect_all(input);
+            lf_input_field_unselect_all(input);
           }
           break;
         }
         case GLFW_KEY_RIGHT: {
           if(input->cursor_index + 1 > strlen(input->buf)){
             if(!lf_key_is_down(GLFW_KEY_LEFT_SHIFT))
-              input_field_unselect_all(input);
+              lf_input_field_unselect_all(input);
             break;
           }
           if(lf_key_is_down(GLFW_KEY_LEFT_SHIFT)) {
@@ -866,7 +851,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
               if(input->cursor_index - 1 != input->selection_end) {
                 input->selection_start = input->cursor_index;
               } else {
-                input_field_unselect_all(input);
+                lf_input_field_unselect_all(input);
               }
             } else {
               input->selection_end = input->cursor_index;
@@ -875,7 +860,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           } else {
             if(input->selection_end == -1)
               input->cursor_index++;
-            input_field_unselect_all(input);
+            lf_input_field_unselect_all(input);
           }
           break;
         }
@@ -887,8 +872,10 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           break;
         }
         case GLFW_KEY_TAB: {
-          for(uint32_t i = 0; i < 2; i++) {
-            insert_i_str(input->buf, ' ', input->cursor_index++);
+          if(strlen(input->buf) + 1 <= input->buf_size && strlen(input->buf) + 1 <= input->max_chars) {
+            for(uint32_t i = 0; i < 2; i++) {
+              insert_i_str(input->buf, ' ', input->cursor_index++);
+            }
           }
           break;
         }
@@ -896,7 +883,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           if(!lf_key_is_down(GLFW_KEY_LEFT_CONTROL)) break;
           bool selected_all = input->selection_start == 0 && input->selection_end == strlen(input->buf);
           if(selected_all) {
-            input_field_unselect_all(input);
+            lf_input_field_unselect_all(input);
           } else {
             input->selection_start = 0;
             input->selection_end = strlen(input->buf);
@@ -916,12 +903,10 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           if(!lf_key_is_down(GLFW_KEY_LEFT_CONTROL)) break;
           int32_t length;
           const char* clipboard_content = clipboard_text_ex(state.clipboard, &length, LCB_CLIPBOARD);
-          if(length > input->buf_size || strlen(input->buf) + length > input->buf_size) break;
+          if(strlen(input->buf) + length > input->buf_size || strlen(input->buf) + length > input->max_chars) break;
 
-          insert_str_str(input->buf, clipboard_content, input->cursor_index);
+          lf_input_insert_str_idx(input, clipboard_content, length, input->cursor_index);
           input->cursor_index += strlen(clipboard_content);
-
-          input_field_unselect_all(input); 
           break;
 
         }
@@ -935,7 +920,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           int start = input->selection_dir != 0 ?  input->selection_start : input->selection_start - 1;
           remove_substr_str(input->buf, start, input->selection_end);
           input->cursor_index = input->selection_start;
-          input_field_unselect_all(input);
+          lf_input_field_unselect_all(input);
           break;
         }
         default: {
@@ -949,11 +934,15 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
                                           font, LF_NO_COLOR, 
                                           wrap_point, (vec2s){-1, -1}, true, false, -1, -1); 
 
+  if(input->advance_height) {
+    input->height = (input->start_height) ? MAX(input->start_height, textprops.height) : (textprops.height ? textprops.height : get_max_char_height_font(font)); 
+  } else {
+    input->height = (input->start_height) ? input->start_height : get_max_char_height_font(font);
+  }
+
   next_line_on_overflow(
     (vec2s){input->width + props.padding * 2.0f + props.margin_right + props.margin_left, 
       input->height + props.padding * 2.0f + props.margin_bottom + props.margin_top}, state.div_props.border_width);
-
-  input->height = (input->start_height) ? MAX(input->start_height, textprops.height) : (textprops.height ? textprops.height : get_max_char_height_font(font)); 
 
   LfAABB input_aabb = (LfAABB){
     .pos = state.pos_ptr, 
@@ -962,11 +951,10 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
 
   LfClickableItemState inputfield = button(file, line, input_aabb.pos, input_aabb.size, props, props.color, props.border_width, false, false);
 
-
   if(lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && input->selected && inputfield == LF_IDLE) {
     input->selected = false;
     state.input_grabbed = false;
-    input_field_unselect_all(input);
+    lf_input_field_unselect_all(input);
   } else if(inputfield == LF_CLICKED) {
     input->selected = true;
     state.input_grabbed = true;
@@ -977,9 +965,6 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
                                                 wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
     input->cursor_index = selected_props.rendered_count;
   }
-
-  lf_set_cull_end_y(state.pos_ptr.y + input->height + props.padding * 2.0f);
-  lf_unset_cull_end_y();
 
   if(input->selected) {
     char selected_buf[strlen(input->buf)];
@@ -1500,7 +1485,7 @@ void glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
   if(!selected_div->scrollable) return;
   if((state.grabbed_div.id != -1 && selected_div->id != state.grabbed_div.id)) return;
 
-  if(yoffset == -1) {
+  if(yoffset < 0.0f) {
     if(selected_div->total_area.y > (selected_div->aabb.size.y + selected_div->aabb.pos.y)) { 
       if(state.theme.div_smooth_scroll) {
         *state.scroll_velocity_ptr -= state.theme.div_scroll_acceleration;
@@ -1509,7 +1494,7 @@ void glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
         *state.scroll_ptr -= state.theme.div_scroll_amount_px;
       }
     } 
-  } else if (yoffset == 1) {
+  } else if (yoffset > 0.0f) {
     if(*state.scroll_ptr) {
       if(state.theme.div_smooth_scroll) {
         *state.scroll_velocity_ptr += state.theme.div_scroll_acceleration;
@@ -2260,8 +2245,8 @@ double lf_get_mouse_scroll_y() {
   return state.input.mouse.yscroll_delta;
 }
 
-LfDiv _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, float* scroll_velocity, const char* file, int32_t line) {
-  bool hovered_div = area_hovered(pos, size);
+LfDiv* _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, float* scroll_velocity, const char* file, int32_t line) {
+  bool hovered_div = lf_area_hovered(pos, size);
   if(hovered_div) {
     state.scroll_velocity_ptr = scroll_velocity;
     state.scroll_ptr = scroll;
@@ -2327,7 +2312,7 @@ LfDiv _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, f
   state.font_stack = NULL;
   state.props_on_stack = false;
 
-  return div;
+  return &state.current_div;
 }
 
 void lf_div_end() {
@@ -2446,7 +2431,7 @@ LfClickableItemState _lf_button_fixed_loc(const char* text, float width, float h
   return button_fixed_element_loc((void*)text, width, height, file, line, false);
 }
 
-LfClickableItemState _lf_button_fixed_wide_loc(const wchar_t* text, float width, float height, const char* file, int32_t line) {
+LfClickableItemState _lf_button_fixed_loc_wide(const wchar_t* text, float width, float height, const char* file, int32_t line) {
   return button_fixed_element_loc((void*)text, width, height, file, line, true);
 }
 
@@ -2462,6 +2447,9 @@ LfClickableItemState _lf_slider_int_loc(LfSlider* slider, const char* file, int3
   else 
     handle_size = (slider->height != 0) ? slider->height * 4 : 20;
 
+  if(slider->held) {
+    handle_size = (slider->height != 0) ? slider->height * 4.5 : 22.5;
+  }
   float slider_width = (slider->width != 0) ? slider->width : 200;
   float slider_height = (slider->height != 0) ? slider->height : handle_size / 2.0f;
 
@@ -2488,7 +2476,8 @@ LfClickableItemState _lf_slider_int_loc(LfSlider* slider, const char* file, int3
 
 
   lf_rect_render((vec2s){state.pos_ptr.x + slider->handle_pos, state.pos_ptr.y - (handle_size) / 2.0f + slider_height / 2.0f}, 
-                                       (vec2s){handle_size, handle_size}, props.text_color, props.border_color, props.border_width, props.corner_radius * 3.0f);
+                                       (vec2s){handle_size, handle_size}, props.text_color, props.border_color, props.border_width, 
+                 slider->held ? props.corner_radius * 3.5f : props.corner_radius * 3.0f);
 
 
   // Check if the slider bar is pressed
@@ -2663,6 +2652,23 @@ void _lf_input_int_loc(LfInputField *input, const char* file, int32_t line) {
 }
 void _lf_input_float_loc(LfInputField* input, const char* file, int32_t line) {
   input_field(input, INPUT_FLOAT, file, line);
+}
+void lf_input_insert_char_idx(LfInputField* input, char c, uint32_t idx) {
+  lf_input_field_unselect_all(input);
+  insert_i_str(input->buf, c, idx); 
+}
+
+void lf_input_insert_str_idx(LfInputField* input, const char* insert, uint32_t len, uint32_t idx) {
+  if(len > input->buf_size || strlen(input->buf) + len > input->buf_size) return;
+
+  insert_str_str(input->buf, insert, idx);
+  lf_input_field_unselect_all(input); 
+}
+
+void lf_input_field_unselect_all(LfInputField* input) {
+  input->selection_start = -1;
+  input->selection_end = -1;
+  input->selection_dir = 0;
 }
 
 bool lf_input_grabbed() {
@@ -2889,7 +2895,7 @@ void lf_pop_font() {
 
 LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, LfColor color, 
                            int32_t wrap_point, vec2s stop_point, bool no_render, bool render_solid, int32_t start_index, int32_t end_index) { 
-  bool culled = item_should_cull((LfAABB){.pos = (vec2s){pos.x, pos.y + get_current_font().font_size}, .size = (vec2s){-1, -1}});
+  bool culled = item_should_cull((LfAABB){.pos = (vec2s){pos.x, pos.y}, .size = (vec2s){-1, -1}});
 
   float tex_index = -1.0f;
   if(!culled && !no_render) {
@@ -3377,6 +3383,12 @@ bool lf_hovered(vec2s pos, vec2s size) {
   return hovered;
 }
 
+bool lf_area_hovered(vec2s pos, vec2s size) {
+  bool hovered = lf_get_mouse_x() <= (pos.x + size.x) && lf_get_mouse_x() >= (pos.x) && 
+    lf_get_mouse_y() <= (pos.y + size.y) && lf_get_mouse_y() >= (pos.y);
+  return hovered;
+}
+
 LfCursorPosEvent lf_mouse_move_event() {
   return state.cp_ev;
 }
@@ -3439,9 +3451,16 @@ void lf_unset_image_color() {
 void lf_set_current_div_scroll(float scroll) {
   *state.scroll_ptr = scroll;
 }
+float lf_get_current_div_scroll() {
+  return *state.scroll_ptr;
+}
 
 void lf_set_current_div_scroll_velocity(float scroll_velocity) {
   *state.scroll_velocity_ptr = scroll_velocity;
+}
+
+float lf_get_current_div_scroll_velocity() {
+  return *state.scroll_ptr;
 }
 
 void lf_set_line_height(uint32_t line_height) {
