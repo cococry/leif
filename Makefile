@@ -14,8 +14,13 @@ clean:
 	rm -r ./lib
 
 install:
-	sudo cp lib/libleif.a /usr/local/lib/ 
-	sudo cp -r include/leif /usr/local/include/ 
+	cp lib/libleif.a /usr/local/lib/ 
+	cp -r include/leif /usr/local/include/ 
 	cp -r .leif ~/
+
+uninstall:
+	rm -f /usr/local/lib/libleif.a
+	rm -rf /usr/local/include/leif/
+	rm -rf ~/.leif/
 
 .PHONY: all test clean

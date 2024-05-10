@@ -505,3 +505,4 @@ void lf_rect(float width, float height, LfColor color, float corner_radius);
 
 void lf_seperator();
 
+void lf_set_clipboard_text(const char* text);

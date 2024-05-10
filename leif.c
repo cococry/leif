@@ -3565,3 +3565,6 @@ void lf_seperator() {
   lf_next_line();
 }
 
+void lf_set_clipboard_text(const char* text) {
+  clipboard_set_text(state.clipboard, text);
+}
