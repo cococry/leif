@@ -1,7 +1,4 @@
-if [ ! -d "build" ]; then
-    mkdir build
-fi
+meson build # [Optional] --default-library=static
 cd build
-cmake .. 
-make
-sudo make install 
+ninja
+sudo ninja install
