@@ -41,6 +41,11 @@ that the library ueses is OpenGL.
 
 Building the static library should be as easy as installing the dependencies and executing the Makefile.
 
+### Aur (paru/yay)
+```console
+paru -S libleif
+```
+
 #### Install the dependencies (Arch)
 ```console
 sudo pacman -S gcc make glfw cglm
