@@ -1,0 +1,61 @@
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+Testing/
+Makefile
+cmake_install.cmake
+cmake_uninstall.cmake
+CTestTestfile.cmake
+install_manifest.txt
+libclipboard.pc
+bin/
+lib/
+tags
+doc/
+doxygen_sqlite3.db
+libclipboard-config.h
+
+# CMake Visual Studio generated
+.vs/
+Win32/
+*.dir/
+*.vcxproj
+*.vcxproj.user
+*.opensdf
+*.sdf
+*.sln
+*.vcxproj.filters

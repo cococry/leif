@@ -1,0 +1,43 @@
+platform:
+  - x64
+branches:
+  only:
+  - master
+clone_depth: 10
+environment:
+  global:
+    MBASH: C:\msys64\usr\bin\sh -lc
+    PMOPTS: -S --needed --noconfirm --noprogressbar
+
+install:
+  - git submodule update --init --recursive
+  - call %MBASH% ""
+#  - call %MBASH% "pacman -Syuu --noconfirm"
+#  - call %MBASH% "pacman -Suu --noconfirm"
+#  - call %MBASH% "pacman $PMOPTS mingw-w64-{i686,x86_64}-{gcc,cmake}"
+build_script:
+  - mkdir archives
+# msvc-x86-static
+  - cmake . && cmake --build . --config Debug && cmake --build . --config Release
+  - 7z a -t7z archives/msvc-static-libclipboard.7z include/ lib/ bin/
+  - git clean -dxfe archives
+# msvc-x86-dynamic
+  - cmake -DLIBCLIPBOARD_USE_STDCALL=on -DBUILD_SHARED_LIBS=on . && cmake --build . --config Debug && cmake --build . --config Release
+  - 7z a -t7z archives/msvc-dynamic-libclipboard.7z include/ lib/ bin/
+  - git clean -dxfe archives
+# mingw-w64-i686
+  - set MSYSTEM=MINGW32
+  - call %MBASH% "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; cmake '-GMSYS Makefiles' .; make check -j4"
+  - call %MBASH% "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; cmake '-GMSYS Makefiles' -DBUILD_SHARED_LIBS=on .; make -j4"
+  - call %MBASH% "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; cp /mingw32/bin/lib{stdc++*,gcc*,winpthread*} bin/"
+  - 7z a -t7z -mx9 archives/mingw-w64-i686-libclipboard.7z include/ lib/ bin/ -x!lib/libgtest*
+  - git clean -dxfe archives
+# mingw-w64-x86_64
+  - set MSYSTEM=MINGW64
+  - call %MBASH% "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; cmake '-GMSYS Makefiles' .; make check -j4"
+  - call %MBASH% "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; cmake '-GMSYS Makefiles' -DBUILD_SHARED_LIBS=on .; make -j4"
+  - call %MBASH% "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; cp /mingw64/bin/lib{stdc++*,gcc*,winpthread*} bin/"
+  - 7z a -t7z -mx9 archives/mingw-w64-x86_64-libclipboard.7z include/ lib/ bin/ -x!lib/libgtest*
+artifacts:
+  - path: "archives/*.7z"
+    name: libclipboard

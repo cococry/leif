@@ -1,0 +1,11 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/@LIB_INSTALL_DIR@
+includedir=${prefix}/include
+
+Name: lib@CMAKE_PROJECT_NAME@
+Description: Cross-platform clipboard library
+Version: @LIBCLIPBOARD_VERSION@
+Libs: -L${libdir} -lclipboard
+Libs.private: @LIBCLIPBOARD_PRIVATE_LIBS_LIST@
+Cflags: -I${includedir}
