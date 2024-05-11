@@ -1,6 +1,7 @@
 CC=gcc
-INCS=`pkg-config --cflags glfw3` -Ivendor/glad/include -Ivendor/stb_image/ -Ivendor/stb_truetype -Ivendor/stb_image_resize
-CFLAGS+=${INCS} -DLF_GLFW -O3 -ffast-math 
+INCS=-Ivendor/glad/include -Ivendor/stb_image/ -Ivendor/stb_truetype -Ivendor/stb_image_resize
+LIBS=-lglfw
+CFLAGS=${INCS} -DLF_GLFW -O3 -ffast-math 
 all: lib/leif.a
 
 build-deps:
@@ -10,7 +11,7 @@ lib/leif.a: lib/leif.o
 	ar cr lib/libleif.a lib/*.o
 
 lib/leif.o: lib build-deps
-	${CC} ${CFLAGS} -c leif.c -o lib/leif.o
+	${CC} ${CFLAGS} -c leif.c -o lib/leif.o ${LIBS} ${INCS} 
 	${CC} -c vendor/glad/src/glad.c -o lib/glad.o
 
 lib:
