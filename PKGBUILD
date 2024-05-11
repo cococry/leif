@@ -26,8 +26,6 @@ build() {
 }
 
 package() {
-    cd $_pkgname 
-    sudo install -D -m777 ./lib/libleif.a "$pkdir/usr/local/lib"
-    sudo install -D -m777 include/leif "/usr/local/include/"
-    sudo install -D -m777 ./leif "~/"
+    cd $_pkgname
+    sudo make install
 }

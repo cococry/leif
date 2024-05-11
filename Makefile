@@ -1,6 +1,6 @@
 CC=gcc
 INCS=-Ivendor/glad/include -Ivendor/stb_image/ -Ivendor/stb_truetype -Ivendor/stb_image_resize
-LIBS=-lglfw
+LIBS=-lglfw -lxcb
 CFLAGS=${INCS} -DLF_GLFW -O3 -ffast-math 
 all: lib/leif.a
 
