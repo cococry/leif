@@ -89,7 +89,7 @@ typedef struct {
     void (*char_callback)(char);
     void (*insert_override_callback)(void*);
 
-    bool advance_height;
+    bool retain_height;
 } LfInputField;
 
 typedef struct {

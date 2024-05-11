@@ -780,7 +780,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
       input->mouse_dir = 0;
     } 
     if(lf_char_event().happened && lf_char_event().charcode >= 0 && lf_char_event().charcode <= 127 &&
-      strlen(input->buf) + 1 <= input->buf_size && strlen(input->buf) + 1 <= input->max_chars) { 
+      strlen(input->buf) + 1 <= input->buf_size && (input->max_chars ? strlen(input->buf) + 1 <= input->max_chars : true)) { 
       if(input->insert_override_callback) {
         input->insert_override_callback(input);
       } else {
@@ -872,7 +872,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           break;
         }
         case GLFW_KEY_TAB: {
-          if(strlen(input->buf) + 1 <= input->buf_size && strlen(input->buf) + 1 <= input->max_chars) {
+          if(strlen(input->buf) + 1 <= input->buf_size && (input->max_chars ? strlen(input->buf) + 1 <= input->max_chars : true)) {
             for(uint32_t i = 0; i < 2; i++) {
               insert_i_str(input->buf, ' ', input->cursor_index++);
             }
@@ -903,7 +903,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
           if(!lf_key_is_down(GLFW_KEY_LEFT_CONTROL)) break;
           int32_t length;
           const char* clipboard_content = clipboard_text_ex(state.clipboard, &length, LCB_CLIPBOARD);
-          if(strlen(input->buf) + length > input->buf_size || strlen(input->buf) + length > input->max_chars) break;
+          if(strlen(input->buf) + length > input->buf_size || (input->max_chars ? strlen(input->buf) + length > input->max_chars : false)) break;
 
           lf_input_insert_str_idx(input, clipboard_content, length, input->cursor_index);
           input->cursor_index += strlen(clipboard_content);
@@ -934,7 +934,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
                                           font, LF_NO_COLOR, 
                                           wrap_point, (vec2s){-1, -1}, true, false, -1, -1); 
 
-  if(input->advance_height) {
+  if(!input->retain_height) {
     input->height = (input->start_height) ? MAX(input->start_height, textprops.height) : (textprops.height ? textprops.height : get_max_char_height_font(font)); 
   } else {
     input->height = (input->start_height) ? input->start_height : get_max_char_height_font(font);
