@@ -2,6 +2,7 @@
 #include <cglm/mat4.h>
 #include <cglm/types-struct.h>
 #include <glad/glad.h>
+#include <time.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -195,6 +196,7 @@ typedef struct {
 
   bool div_velocity_accelerating;
 
+  float last_time, delta_time;
   clipboard_c* clipboard;
 } LfState;
 
@@ -229,7 +231,7 @@ static void                     draw_scrollbar_on(LfDiv* div);
 
 static void                     input_field(LfInputField* input, InputFieldType type, const char* file, int32_t line);
 
-LfFont                          load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add);
+LfFont                          load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t line_gap_add);
 static LfFont                   get_current_font(); 
 
 static LfClickableItemState     button_element_loc(void* text, const char* file, int32_t line, bool wide);
@@ -579,7 +581,7 @@ LfTextProps text_render_simple(vec2s pos, const char* text, LfFont font, LfColor
   return lf_text_render(pos, text, font, font_color, -1, (vec2s){-1, -1}, no_render, false, -1, -1);
 }
 LfTextProps text_render_simple_wide(vec2s pos, const wchar_t* text, LfFont font, LfColor font_color, bool no_render) {
-  return lf_text_render_wchar(pos, text, font, -1, no_render, font_color);
+  return lf_text_render_wchar(pos, text, font, font_color, -1, (vec2s){-1, -1}, no_render, false, -1, -1);
 }
 
 
@@ -784,6 +786,15 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
       if(input->insert_override_callback) {
         input->insert_override_callback(input);
       } else {
+        if(input->selection_start != -1) {
+          int start = input->selection_dir != 0 ?  input->selection_start : input->selection_start - 1;
+          int end = input->selection_end;
+
+          remove_substr_str(input->buf, start, end);
+
+          input->cursor_index = input->selection_start;
+          lf_input_field_unselect_all(input);
+        }
         lf_input_insert_char_idx(input, lf_char_event().charcode, input->cursor_index++);
       }
     }
@@ -928,6 +939,9 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
         }
       }
     }
+    if(input->key_callback) {
+      input->key_callback(input);
+    }
   }
 
   LfTextProps textprops =  lf_text_render((vec2s){state.pos_ptr.x + props.padding, state.pos_ptr.y + props.padding}, input->buf, 
@@ -962,7 +976,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
       state.pos_ptr.x + props.padding, 
       state.pos_ptr.y + props.padding
     }, input->buf, font, LF_NO_COLOR, 
-                                                wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
+      wrap_point, (vec2s){lf_get_mouse_x(), lf_get_mouse_y()}, true, false, -1, -1);
     input->cursor_index = selected_props.rendered_count;
   }
 
@@ -985,11 +999,13 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
     } else {
       lf_text_render((vec2s){state.pos_ptr.x + props.padding, 
         state.pos_ptr.y + props.padding}, input->buf, font, (LfColor){255, 255, 255, 80}, wrap_point, (vec2s){-1, -1}, 
-                     false, true, input->selection_start, input->selection_end + 1);
+                     false, true, input->selection_start, input->selection_end);
     }
   }
 
-  lf_text_render((vec2s){state.pos_ptr.x + props.padding, state.pos_ptr.y + props.padding}, (!strlen(input->buf) && !input->selected) ? input->placeholder : input->buf, font, props.text_color, 
+  lf_text_render((vec2s){state.pos_ptr.x + props.padding, state.pos_ptr.y + props.padding}, 
+                 (!strlen(input->buf) && !input->selected) ? input->placeholder : input->buf, font, 
+                 !strlen(input->buf) ? lf_color_brightness(props.text_color, 0.75f) : props.text_color, 
                  wrap_point, (vec2s){-1, -1}, false, false, -1, -1); 
 
 
@@ -997,7 +1013,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
   state.pos_ptr.y -= props.margin_top;
 }
 
-LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height, uint32_t num_glyphs, uint32_t line_gap_add) {
+LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, uint32_t tex_height,  uint32_t line_gap_add) {
   LfFont font = {0};
   /* Opening the file, reading the content to a buffer and parsing the loaded data with stb_truetype */
   FILE* file = fopen(filepath, "rb");
@@ -1017,19 +1033,19 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
   // Initializing the font with stb_truetype
   stbtt_InitFont((stbtt_fontinfo*)font.font_info, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
 
+  stbtt_fontinfo* fontinfo = (stbtt_fontinfo*)font.font_info;
+  int numglyphs = fontinfo->numGlyphs;
 
   // Loading the font bitmap to memory by using stbtt_BakeFontBitmap
-  uint8_t buf[1<<20];
   uint8_t* bitmap = (uint8_t*)malloc(tex_width * tex_height * sizeof(uint32_t));
   uint8_t* bitmap_4bpp = (uint8_t*)malloc(tex_width * tex_height * 4 * sizeof(uint32_t));
-  fread(buf, 1, 1<<20, fopen(filepath, "rb"));
-  font.cdata = malloc(sizeof(stbtt_bakedchar) * num_glyphs);
+  font.cdata = malloc(sizeof(stbtt_bakedchar) * numglyphs);
   font.tex_width = tex_width;
   font.tex_height = tex_height;
   font.line_gap_add = line_gap_add;
   font.font_size = pixelsize;
-  font.num_glyphs = num_glyphs;
-  stbtt_BakeFontBitmap(buf, 0, pixelsize, bitmap, tex_width, tex_height, 32, num_glyphs, (stbtt_bakedchar*)font.cdata);
+  font.num_glyphs = numglyphs;
+  stbtt_BakeFontBitmap(buffer, 0, pixelsize, bitmap, tex_width, tex_height, 32, numglyphs, (stbtt_bakedchar*)font.cdata);
 
   uint32_t bitmap_index = 0;
   for(uint32_t i = 0; i < (uint32_t)(tex_width * tex_height * 4); i++) {
@@ -1505,7 +1521,7 @@ void glfw_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     }        
   }
   if(state.theme.div_smooth_scroll)
-    *state.scroll_velocity_ptr = MIN(MAX(*state.scroll_velocity_ptr, -state.theme.div_scroll_max_veclocity), state.theme.div_scroll_max_veclocity);
+    *state.scroll_velocity_ptr = MIN(MAX(*state.scroll_velocity_ptr, -state.theme.div_scroll_max_velocity), state.theme.div_scroll_max_velocity);
 }
 void glfw_cursor_callback(GLFWwindow* window, double xpos, double ypos) {
   (void)window;
@@ -1571,6 +1587,7 @@ uint64_t djb2_hash(uint64_t hash, const void* buf, size_t size) {
 // ----------------Public API Functions ---------------------- 
 // ===========================================================
 void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_window) {
+  setlocale(LC_ALL, "");
 #ifndef LF_GLFW
   LF_ERROR("Trying to initialize Leif with GLFW without defining 'LF_GLFW'");
   return;
@@ -1731,7 +1748,7 @@ LfTheme lf_default_theme() {
   };
   theme.font = lf_load_font_asset("inter", "ttf", 24);
 
-  theme.div_scroll_max_veclocity = 100.0f; 
+  theme.div_scroll_max_velocity = 100.0f; 
   theme.div_scroll_velocity_deceleration = 0.92;
   theme.div_scroll_acceleration = 2.5f;
   theme.div_scroll_amount_px = 20.0f;
@@ -1762,11 +1779,11 @@ void lf_resize_display(uint32_t display_width, uint32_t display_height) {
 }
 
 LfFont lf_load_font(const char* filepath, uint32_t size) {
-  return load_font(filepath, size, 1024, 1024, 1536, 0);
+  return load_font(filepath, size, 1024, 1024, 0);
 }
 
-LfFont lf_load_font_ex(const char* filepath, uint32_t size, uint32_t bitmap_w, uint32_t bitmap_h, uint32_t num_glyphs) {
-  return load_font(filepath, size, bitmap_w, bitmap_h, num_glyphs, 0);
+LfFont lf_load_font_ex(const char* filepath, uint32_t size, uint32_t bitmap_w, uint32_t bitmap_h) {
+  return load_font(filepath, size, bitmap_w, bitmap_h, 0);
 }
 
 LfTexture lf_load_texture(const char* filepath, bool flip, LfTextureFiltering filter) {
@@ -1902,99 +1919,59 @@ LfTexture lf_load_texture_from_memory(const void* data, size_t size, bool flip, 
   return tex;
 
 }
-
 LfTexture lf_load_texture_from_memory_resized(const void* data, size_t size, bool flip, LfTextureFiltering filter, uint32_t w, uint32_t h) {
   LfTexture tex;
-  int width, height, channels;
-  unsigned char* image = stbi_load_from_memory(data, size, &width, &height, &channels, STBI_rgb_alpha);
-  if (!image) {
-    return tex;
-  }
-  size_t new_size = w * h * channels;
-  unsigned char* resized_data = (unsigned char*)malloc(new_size);
-  if (resized_data == NULL) {
-    return tex;
-  }
 
-  stbir_resize_uint8_linear(image, width, height, channels, resized_data, w, h, 0,(stbir_pixel_layout)channels);
+  int32_t channels;
+  unsigned char* resized = lf_load_texture_data_from_memory_resized(data, size, &channels, NULL, NULL, flip, w, h);
+  lf_create_texture_from_image_data(LF_TEX_FILTER_LINEAR, &tex.id, w, h, channels, resized);
 
-  glGenTextures(1, &tex.id);
-  glBindTexture(GL_TEXTURE_2D, tex.id); 
+  tex.width = w;
+  tex.height = h;
 
-  // Set texture parameters
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  switch(filter) {
-    case LF_TEX_FILTER_LINEAR:
-      glTextureParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-      glTextureParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-      break;
-    case LF_TEX_FILTER_NEAREST:
-      glTextureParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-      glTextureParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-      break;
-  }
-
-  // Load texture data
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, resized_data);
-  glGenerateMipmap(GL_TEXTURE_2D);
-
-  stbi_image_free(image); 
-  free(resized_data);
-
-  tex.width = width;
-  tex.height = height;
   return tex;
-
 }
+
+
 LfTexture lf_load_texture_from_memory_resized_factor(const void* data, size_t size, bool flip, LfTextureFiltering filter, float wfactor, float hfactor) {
   LfTexture tex;
-  int width, height, channels;
-  unsigned char* image = stbi_load_from_memory(data, size, &width, &height, &channels, STBI_rgb_alpha);
-  if (!image) {
-    return tex;
-  }
 
-  float w = (wfactor * width);
-  float h = (hfactor * height);
+  int32_t width, height, channels;
+  stbi_uc* image_data = stbi_load_from_memory((const stbi_uc*)data, size, &width, &height, &channels, 0);
 
-  size_t new_size = w * h * channels;
-  unsigned char* resized_data = (unsigned char*)malloc(new_size);
-  if (resized_data == NULL) {
-    return tex;
-  }
+  int w = width * wfactor;
+  int h = height * hfactor;
 
-  stbir_resize_uint8_linear(image, width, height, channels, resized_data, w, h, 0,(stbir_pixel_layout)channels);
+  unsigned char* resized_data = (unsigned char*)malloc(sizeof(unsigned char) * w * h * channels);
+  stbir_resize_uint8_linear(image_data, width, height, 0, resized_data, w, h, 0,(stbir_pixel_layout)channels);
+  stbi_image_free(image_data);
 
-  glGenTextures(1, &tex.id);
-  glBindTexture(GL_TEXTURE_2D, tex.id); 
+  lf_create_texture_from_image_data(LF_TEX_FILTER_LINEAR, &tex.id, w, h, channels, resized_data);
 
-  // Set texture parameters
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  switch(filter) {
-    case LF_TEX_FILTER_LINEAR:
-      glTextureParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-      glTextureParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-      break;
-    case LF_TEX_FILTER_NEAREST:
-      glTextureParameteri(tex.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-      glTextureParameteri(tex.id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-      break;
-  }
+  tex.width = w;
+  tex.height = h;
 
-  // Load texture data
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, resized_data);
-  glGenerateMipmap(GL_TEXTURE_2D);
-
-  stbi_image_free(image); 
-  free(resized_data);
-
-  tex.width = width;
-  tex.height = height;
   return tex;
 }
 
+LfTexture lf_load_texture_from_memory_resized_to_fit(const void* data, size_t size, bool flip, LfTextureFiltering filter, int32_t container_w, int32_t container_h) {
+  LfTexture tex;
+
+  int32_t image_width, image_height, channels;
+  stbi_uc* image_data = lf_load_texture_data_from_memory((const stbi_uc*)data, size, &image_width, &image_height, &channels, flip);
+
+  int32_t new_width, new_height;
+  unsigned char* resized_data =  lf_load_texture_data_from_memory_resized_to_fit_ex(image_data, size, &new_width, &new_height, 
+                                                                                 channels, image_width, image_height, flip, container_w, container_h);
+  stbi_image_free(image_data);
+
+  lf_create_texture_from_image_data(LF_TEX_FILTER_LINEAR, &tex.id, new_width, new_height, channels, resized_data);
+
+  tex.width = new_width;
+  tex.height = new_height;
+
+  return tex;
+}
 unsigned char* lf_load_texture_data(const char* filepath, int32_t* width, int32_t* height, int32_t* channels, bool flip) {
   stbi_set_flip_vertically_on_load(!flip);
   stbi_uc* data = stbi_load(filepath, width, height, channels, STBI_rgb_alpha);
@@ -2028,6 +2005,7 @@ unsigned char* lf_load_texture_data_resized_factor(const char* filepath, int32_t
   stbir_resize_uint8_linear(image, *width, *height, *channels, resized_data, w, h, 0,(stbir_pixel_layout)*channels);
   free(image);
   return resized_data;
+
  }
 
 unsigned char* lf_load_texture_data_from_memory(const void* data, size_t size, int32_t* width, int32_t* height, int32_t* channels, bool flip) {
@@ -2039,56 +2017,65 @@ unsigned char* lf_load_texture_data_from_memory(const void* data, size_t size, i
   return image;
 }
 
-unsigned char* lf_load_texture_data_from_memory_resized(const void* data, size_t size, int32_t* channels, bool flip, uint32_t w, uint32_t h) {
+unsigned char* lf_load_texture_data_from_memory_resized(const void* data, size_t size, int32_t* channels, int32_t* o_w, int32_t* o_h, bool flip, uint32_t w, uint32_t h) {
   int32_t width, height;
   stbi_uc* image_data = stbi_load_from_memory((const stbi_uc*)data, size, &width, &height, channels, 0);
-  unsigned char* downscaled_image = (unsigned char*)malloc(sizeof(unsigned char) * w * h * *channels);
-  stbir_resize_uint8_linear(image_data, width, height, 0, downscaled_image, w, h, 0,(stbir_pixel_layout)*channels);
+  unsigned char* resized_data = lf_load_texture_data_from_memory_resized_to_fit_ex(image_data, size, o_w, o_h, *channels, width, height, flip, 48, 48);
   stbi_image_free(image_data);
-  return downscaled_image;
+  return resized_data;
 }
 
-unsigned char* lf_load_texture_data_from_memory_resized_to_fit(const void* data, size_t size, int32_t* width, int32_t* height, int32_t* channels, bool flip, uint32_t w, uint32_t h) {
-  int32_t base_width, base_height;
-  stbi_uc* image_data = stbi_load_from_memory((const stbi_uc*)data, size, &base_width, &base_height, channels, 0);
+unsigned char* lf_load_texture_data_from_memory_resized_to_fit_ex(const void* data, size_t size, int32_t* o_width, int32_t* o_height, int32_t i_channels, 
+    int32_t i_width, int32_t i_height, bool flip, int32_t container_w, int32_t container_h) {
+  float container_aspect_ratio = (float)container_w / container_h;
+  float image_aspect_ratio = (float)i_width / i_height;
 
-  float image_aspect = (float)base_width / (float)base_height;
+  int new_width, new_height;
 
-  float container_aspect = (float)w / (float)w;
-
-  float scale_factor;
-  if (image_aspect > container_aspect) {
-    scale_factor = (float)w / (float)base_width;
+  if (image_aspect_ratio > container_aspect_ratio) {
+    new_width = container_w;
+    new_height = (int)((container_w / (float)i_width) * i_height);
   } else {
-    scale_factor = (float)w / (float)base_height;
+    new_height = container_h;
+    new_width = (int)((container_h / (float)i_height) * i_width);
   }
 
-  float fit_w = base_width * scale_factor; 
-  float fit_h = base_height * scale_factor;
+  if(o_width) 
+    *o_width = new_width;
+  if(o_height)
+    *o_height = new_height;
 
-  unsigned char* downscaled_image = (unsigned char*)malloc(sizeof(unsigned char) * (int32_t)fit_w * (int32_t)fit_h * (*channels));
-  stbir_resize_uint8_linear(image_data, base_width, base_height, 0, downscaled_image, (int32_t)fit_w, (int32_t)fit_h, 0,(stbir_pixel_layout)*channels);
+  unsigned char* resized_image = (unsigned char*)malloc(sizeof(unsigned char) * new_width * new_height * i_channels);
+  stbir_resize_uint8_linear(data, i_width, i_height, 0, resized_image, new_width, new_height, 0,(stbir_pixel_layout)i_channels);
+  return resized_image;
+}
+unsigned char* lf_load_texture_data_from_memory_resized_to_fit(const void* data, size_t size, int32_t* o_width, int32_t* o_height, 
+                                                               int32_t* o_channels, bool flip, int32_t container_w, int32_t container_h) {
+
+  int32_t image_width, image_height, channels;
+  stbi_uc* image_data = lf_load_texture_data_from_memory((const stbi_uc*)data, size, &image_width, &image_height, &channels, flip);
+
+  int32_t new_width, new_height;
+  unsigned char* resized_data =  lf_load_texture_data_from_memory_resized_to_fit_ex(image_data, size, &new_width, &new_height, 
+                                                                                    channels, image_width, image_height, flip, container_w, container_h);
+  *o_width = new_width;
+  *o_height = new_height;
+  *o_channels = channels;
+
   stbi_image_free(image_data);
-
-  *width = (int32_t)fit_w;
-  *height = (int32_t)fit_h;
-  return downscaled_image; 
+  return image_data;
 }
 
 unsigned char* lf_load_texture_data_from_memory_resized_factor(const void* data, size_t size, int32_t* width, int32_t* height, int32_t* channels, bool flip, float wfactor, float hfactor) {
-  int32_t base_width, base_height;
-  stbi_uc* image_data = stbi_load_from_memory((const stbi_uc*)data, size, &base_width, &base_height, channels, 0);
+  stbi_uc* image_data = stbi_load_from_memory((const stbi_uc*)data, size, width, height, channels, 0);
 
-  float real_w = base_width * wfactor;
-  float real_h = base_height * hfactor;
+  int w = (*width) * wfactor;
+  int h = (*height) * hfactor;
 
-  unsigned char* downscaled_image = (unsigned char*)malloc(sizeof(unsigned char) * real_w * real_h * *channels);
-  stbir_resize_uint8_linear(image_data, base_width, base_height, 0, downscaled_image, real_w, real_h, 0,(stbir_pixel_layout)*channels);
+  unsigned char* resized_data = (unsigned char*)malloc(sizeof(unsigned char) * w * h * (*channels));
+  stbir_resize_uint8_linear(image_data, *width, *height, 0, resized_data, w, h, 0,(stbir_pixel_layout)*channels);
   stbi_image_free(image_data);
-
-  *width = real_w;
-  *height = real_h;
-  return downscaled_image; 
+  return resized_data;
 }
 
 void lf_create_texture_from_image_data(LfTextureFiltering filter, uint32_t* id, int32_t width, int32_t height, int32_t channels, unsigned char* data) {
@@ -2719,10 +2706,7 @@ void lf_next_line() {
   state.current_line_height = 0;
 }
 vec2s lf_text_dimension(const char* str) {
-  LfFont font = get_current_font();
-  LfTextProps props = text_render_simple((vec2s){0.0f, 0.0f}, str, font, state.theme.text_props.text_color, true);
-
-  return (vec2s){(float)props.width, (float)props.height};
+  return lf_text_dimension_ex(str, -1);
 }
 
 vec2s lf_text_dimension_ex(const char* str, float wrap_point) {
@@ -2734,15 +2718,12 @@ vec2s lf_text_dimension_ex(const char* str, float wrap_point) {
 }
 
 vec2s lf_text_dimension_wide(const wchar_t* str) {
-  LfFont font = get_current_font();
-  LfTextProps props = text_render_simple_wide((vec2s){0.0f, 0.0f}, str, font, state.theme.text_props.text_color, true);
-
-  return (vec2s){(float)props.width, (float)props.height};
+  return lf_text_dimension_wide_ex(str, -1);
 }
 
 vec2s lf_text_dimension_wide_ex(const wchar_t* str, float wrap_point) {
   LfFont font = get_current_font();
-  LfTextProps props = lf_text_render_wchar((vec2s){0.0f, 0.0f}, str, font, wrap_point, true, state.theme.text_props.text_color);
+  LfTextProps props = lf_text_render_wchar((vec2s){0.0f, 0.0f}, str, font, LF_NO_COLOR, wrap_point, (vec2s){-1, -1}, true, false, -1, -1);
 
   return (vec2s){(float)props.width, (float)props.height};
 }
@@ -2811,8 +2792,8 @@ void lf_text_wide(const wchar_t* text) {
   LfFont font = get_current_font();
 
   // Advancing to the next line if the the text does not fit on the current div
-  LfTextProps text_props = lf_text_render_wchar(state.pos_ptr, text, font, 
-                                                (state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left : -1), true, text_color);
+  LfTextProps text_props = lf_text_render_wchar(state.pos_ptr, text, font, text_color, 
+                                                (state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left : -1), (vec2s){-1, -1}, true, false, -1, -1);
   next_line_on_overflow(
     (vec2s){text_props.width + padding * 2.0f + margin_left + margin_right,
       text_props.height + padding * 2.0f + margin_top + margin_bottom}, 
@@ -2827,8 +2808,8 @@ void lf_text_wide(const wchar_t* text) {
 
   // Rendering a colored text box if a color is specified
   // Rendering the text
-  lf_text_render_wchar((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, text, font, 
-                       (state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left : -1), false, text_color);
+  lf_text_render_wchar((vec2s){state.pos_ptr.x + padding, state.pos_ptr.y + padding}, text, font, text_color, 
+                       (state.text_wrap ? (state.current_div.aabb.size.x + state.current_div.aabb.pos.x) - margin_right - margin_left : -1), (vec2s){-1, -1}, false, false, -1, -1);
 
   // Advancing the position pointer by the width of the text
   state.pos_ptr.x += text_props.width + padding * 2.0f + margin_right + padding;
@@ -2893,169 +2874,106 @@ void lf_pop_font() {
   state.font_stack = NULL;
 }
 
-LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, LfColor color, 
-                           int32_t wrap_point, vec2s stop_point, bool no_render, bool render_solid, int32_t start_index, int32_t end_index) { 
-  bool culled = item_should_cull((LfAABB){.pos = (vec2s){pos.x, pos.y}, .size = (vec2s){-1, -1}});
+// Decode a UTF-8 character sequence to Unicode code point
+uint32_t decode_utf8(const char *s, int *bytes_read) {
+    uint8_t c = s[0];
+    if (c < 0x80) {
+        *bytes_read = 1;
+        return c;
+    } else if (c < 0xE0) {
+        *bytes_read = 2;
+        return ((s[0] & 0x1F) << 6) | (s[1] & 0x3F);
+    } else if (c < 0xF0) {
+        *bytes_read = 3;
+        return ((s[0] & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+    } else {
+        *bytes_read = 4;
+        return ((s[0] & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+    }
+}
 
-  float tex_index = -1.0f;
-  if(!culled && !no_render) {
-    if(state.render.tex_count - 1 >= MAX_TEX_COUNT_BATCH - 1) {
+static void renderer_add_glyph(stbtt_aligned_quad q, int32_t max_descended_char_height, LfColor color, uint32_t tex_index) {
+  vec2s texcoords[4] = {
+    q.s0, q.t0, 
+    q.s1, q.t0, 
+    q.s1, q.t1, 
+    q.s0, q.t1
+  };
+  vec2s verts[4] = {
+    (vec2s){q.x0, q.y0 + max_descended_char_height}, 
+    (vec2s){q.x1, q.y0 + max_descended_char_height}, 
+    (vec2s){q.x1, q.y1 + max_descended_char_height},
+    (vec2s){q.x0, q.y1 + max_descended_char_height}
+  }; 
+  for(uint32_t i = 0; i < 4; i++) {
+    if(state.render.vert_count >= MAX_RENDER_BATCH) {
       renderer_flush();
       renderer_begin();
     }
-    // Retrieving the texture index
-    for(uint32_t i = 0; i < state.render.tex_count; i++) {
-      if(state.render.textures[i].id == font.bitmap.id) {
-        tex_index = (float)i;
-        break;
-      }
-    }
-    if(tex_index == -1.0f) {
-      tex_index = (float)state.render.tex_index;
-      LfTexture tex = font.bitmap;
-      state.render.textures[state.render.tex_count++] = tex;
-      state.render.tex_index++;
-    }
+    const vec2 verts_arr = {verts[i].x, verts[i].y};
+    memcpy(state.render.verts[state.render.vert_count].pos, verts_arr, sizeof(vec2));
+
+    const vec4 border_color = {0, 0, 0, 0};
+    memcpy(state.render.verts[state.render.vert_count].border_color, border_color, sizeof(vec4));
+
+    state.render.verts[state.render.vert_count].border_width = 0;
+
+    vec4s color_zto = lf_color_to_zto(color);
+    const vec4 color_arr = {color_zto.r, color_zto.g, color_zto.b, color_zto.a};
+    memcpy(state.render.verts[state.render.vert_count].color, color_arr, sizeof(vec4));
+
+    const vec2 texcoord_arr = {texcoords[i].x, texcoords[i].y};
+    memcpy(state.render.verts[state.render.vert_count].texcoord, texcoord_arr, sizeof(vec2));
+
+    state.render.verts[state.render.vert_count].tex_index = tex_index;
+
+    const vec2 scale_arr = {0, 0};
+    memcpy(state.render.verts[state.render.vert_count].scale, scale_arr, sizeof(vec2));
+
+    const vec2 pos_px_arr = {0, 0};
+    memcpy(state.render.verts[state.render.vert_count].pos_px, pos_px_arr, sizeof(vec2));
+
+    state.render.verts[state.render.vert_count].corner_radius = 0;
+
+    const vec2 cull_start_arr = {state.cull_start.x, state.cull_start.y};
+    const vec2 cull_end_arr = {state.cull_end.x, state.cull_end.y};
+    memcpy(state.render.verts[state.render.vert_count].min_coord, cull_start_arr, sizeof(vec2));
+    memcpy(state.render.verts[state.render.vert_count].max_coord, cull_end_arr, sizeof(vec2));
+
+    state.render.vert_count++;
   }
-  // Local variables needed for rendering
-  LfTextProps ret = {0};
-
-  float x = pos.x;
-  float y = pos.y;
-
-  int32_t max_descended_char_height = get_max_char_height_font(font);
-
-  float last_x = x;
-
-  float height = get_max_char_height_font(font);
-  float width = 0;
-
-  mat4 translate; 
-  mat4 scale;
-  mat4 transform;
-  glm_translate_make(translate, (vec3){pos.x, pos.y, 0.0f});
-  glm_scale_make(scale, (vec3){get_max_char_height_font(font), get_max_char_height_font(font), 0.0f});
-  glm_mat4_mul(translate,scale,transform);
-
-  int32_t i = 0;
-  while(*str) { 
-    bool skip = false;
-    if(*str >= font.num_glyphs) {
-      goto next_iter; 
-    } 
-    if(i >= end_index && end_index != -1) {
-      break;
-    }
-    // If the current character is a new line or the wrap point has been reached, advance to the next line
-    if(*str == '\n' || (x >= wrap_point && wrap_point != -1)) {
-      y += font.font_size;
-      height += font.font_size;
-      if(x - pos.x > width) {
-        width = x - pos.x;
-      }
-      x = pos.x;
-      last_x = x;
-      if(*str == ' ') {
-        goto next_iter; 
-      }
-    }
-    // Retrieving the vertex data of the current character & submitting it to the batch  
-    stbtt_aligned_quad q;
-    stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, *str-32, &x, &y, &q, 1);
-
-    if(i < start_index && start_index != -1) {
-      last_x = x;
-      ret.rendered_count++;
-      goto next_iter;
-      continue;
-    }
-    if(stop_point.x != -1 && stop_point.y != -1) {
-      if(x >= stop_point.x && stop_point.x != -1 && y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
-        break;
-      }
-    } else {
-      if(y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
-        break;
-      }
-    }
-
-    if(!culled && !no_render) {
-      if(render_solid) {
-        lf_rect_render((vec2s){x, y}, (vec2s){last_x - x, get_max_char_height_font(font)}, color, LF_NO_COLOR, 0.0f, 0.0f);
-      } else {
-        vec2s texcoords[4] = {
-          q.s0, q.t0, 
-          q.s1, q.t0, 
-          q.s1, q.t1, 
-          q.s0, q.t1
-        };
-        vec2s verts[4] = {
-          (vec2s){q.x0, q.y0 + max_descended_char_height}, 
-          (vec2s){q.x1, q.y0 + max_descended_char_height}, 
-          (vec2s){q.x1, q.y1 + max_descended_char_height},
-          (vec2s){q.x0, q.y1 + max_descended_char_height}
-        }; 
-        for(uint32_t i = 0; i < 4; i++) {
-          if(state.render.vert_count >= MAX_RENDER_BATCH) {
-            renderer_flush();
-            renderer_begin();
-          }
-          const vec2 verts_arr = {verts[i].x, verts[i].y};
-          memcpy(state.render.verts[state.render.vert_count].pos, verts_arr, sizeof(vec2));
-
-          const vec4 border_color = {0, 0, 0, 0};
-          memcpy(state.render.verts[state.render.vert_count].border_color, border_color, sizeof(vec4));
-
-          state.render.verts[state.render.vert_count].border_width = 0;
-
-          vec4s color_zto = lf_color_to_zto(color);
-          const vec4 color_arr = {color_zto.r, color_zto.g, color_zto.b, color_zto.a};
-          memcpy(state.render.verts[state.render.vert_count].color, color_arr, sizeof(vec4));
-
-          const vec2 texcoord_arr = {texcoords[i].x, texcoords[i].y};
-          memcpy(state.render.verts[state.render.vert_count].texcoord, texcoord_arr, sizeof(vec2));
-
-          state.render.verts[state.render.vert_count].tex_index = tex_index;
-
-          const vec2 scale_arr = {0, 0};
-          memcpy(state.render.verts[state.render.vert_count].scale, scale_arr, sizeof(vec2));
-
-          const vec2 pos_px_arr = {0, 0};
-          memcpy(state.render.verts[state.render.vert_count].pos_px, pos_px_arr, sizeof(vec2));
-
-          state.render.verts[state.render.vert_count].corner_radius = 0;
-
-          const vec2 cull_start_arr = {state.cull_start.x, state.cull_start.y};
-          const vec2 cull_end_arr = {state.cull_end.x, state.cull_end.y};
-          memcpy(state.render.verts[state.render.vert_count].min_coord, cull_start_arr, sizeof(vec2));
-          memcpy(state.render.verts[state.render.vert_count].max_coord, cull_end_arr, sizeof(vec2));
-
-          state.render.vert_count++;
-        }
-        state.render.index_count += 6; 
-      }
-    }
-    last_x = x;
-    ret.rendered_count++;
-    goto next_iter;
-  next_iter:
-    str++;
-    i++;
-  }
-
-  // Populating the return value
-  if(x - pos.x > width) {
-    width = x - pos.x;
-  }
-  ret.width = width;
-  ret.height = height;
-  ret.end_x = x;
-  ret.end_y = y;
-  return ret;
+  state.render.index_count += 6; 
 }
 
 
-LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, int32_t wrap_point, bool no_render, LfColor color) {
+static wchar_t* str_to_wstr(const char* str) {
+    size_t len = strlen(str) + 1;
+
+    wchar_t* wstr = (wchar_t*)malloc(len * sizeof(wchar_t));
+    if (wstr == NULL) {
+        perror("Memory allocation failed");
+        return NULL;
+    }
+    if (mbstowcs(wstr, str, len) == (size_t)-1) {
+        perror("Conversion failed");
+        free(wstr);
+        return NULL;
+    }
+
+    return wstr;
+}
+
+LfTextProps lf_text_render(vec2s pos, const char* str, LfFont font, LfColor color, 
+                           int32_t wrap_point, vec2s stop_point, bool no_render, bool render_solid, int32_t start_index, int32_t end_index) {
+  wchar_t* wstr = str_to_wstr(str);
+  LfTextProps textprops =  lf_text_render_wchar(pos, (const wchar_t*)wstr, font, color, wrap_point, stop_point, no_render, render_solid, start_index, end_index);
+  free(wstr);
+  return textprops;
+}
+
+
+LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, LfColor color, 
+                                 int32_t wrap_point, vec2s stop_point, bool no_render, bool render_solid, int32_t start_index, int32_t end_index) {
   bool culled = item_should_cull((LfAABB){.pos = (vec2s){pos.x, pos.y + get_current_font().font_size}, .size = (vec2s){-1, -1}});
 
   // Retrieving the texture index
@@ -3097,6 +3015,9 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, int
       str[i] != L' ' && str[i] != L'\n' && str[i] != L'\t' && !iswdigit(str[i]) && !iswpunct(str[i]))  {
       continue;
     }
+    if(i >= end_index && end_index != -1) {
+      break;
+    }
     // If the current character is a new line or the wrap point has been reached, advance to the next line
     if(str[i] == L'\n' || (x >= wrap_point && wrap_point != -1)) {
       y += font.font_size;
@@ -3113,61 +3034,29 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, int
     // Retrieving the vertex data of the current character & submitting it to the batch  
     stbtt_aligned_quad q;
     stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, str[i]-32, &x, &y, &q, 1);
-
-    if(!culled && !no_render)  {
-      vec2s texcoords[4] = {
-        q.s0, q.t0, 
-        q.s1, q.t0, 
-        q.s1, q.t1, 
-        q.s0, q.t1
-      };
-      vec2s verts[4] = {
-        (vec2s){q.x0, q.y0 + max_descended_char_height}, 
-        (vec2s){q.x1, q.y0 + max_descended_char_height}, 
-        (vec2s){q.x1, q.y1 + max_descended_char_height},
-        (vec2s){q.x0, q.y1 + max_descended_char_height}
-      }; 
-      for(uint32_t i = 0; i < 4; i++) {
-        if(state.render.vert_count >= MAX_RENDER_BATCH) {
-          renderer_flush();
-          renderer_begin();
-        }
-        const vec2 verts_arr = {verts[i].x, verts[i].y};
-        memcpy(state.render.verts[state.render.vert_count].pos, verts_arr, sizeof(vec2));
-
-        const vec4 border_color = {0, 0, 0, 0};
-        memcpy(state.render.verts[state.render.vert_count].border_color, border_color, sizeof(vec4));
-
-        state.render.verts[state.render.vert_count].border_width = 0;
-
-
-        vec4s color_zto = lf_color_to_zto(color);
-        const vec4 color_arr = {color_zto.r, color_zto.g, color_zto.b, color_zto.a};
-        memcpy(state.render.verts[state.render.vert_count].color, color_arr, sizeof(vec4));
-
-        const vec2 texcoord_arr = {texcoords[i].x, texcoords[i].y};
-        memcpy(state.render.verts[state.render.vert_count].texcoord, texcoord_arr, sizeof(vec2));
-
-        state.render.verts[state.render.vert_count].tex_index = tex_index;
-
-        const vec2 scale_arr = {0, 0};
-        memcpy(state.render.verts[state.render.vert_count].scale, scale_arr, sizeof(vec2));
-
-        const vec2 pos_px_arr = {0, 0};
-        memcpy(state.render.verts[state.render.vert_count].pos_px, pos_px_arr, sizeof(vec2));
-
-        state.render.verts[state.render.vert_count].corner_radius = 0;
-
-        const vec2 cull_start_arr = {state.cull_start.x, state.cull_start.y};
-        const vec2 cull_end_arr = {state.cull_end.x, state.cull_end.y};
-        memcpy(state.render.verts[state.render.vert_count].min_coord, cull_start_arr, sizeof(vec2));
-        memcpy(state.render.verts[state.render.vert_count].max_coord, cull_end_arr, sizeof(vec2));
-
-        state.render.vert_count++;
+    if(i < start_index && start_index != -1) {
+      last_x = x;
+      ret.rendered_count++;
+      continue;
+    }
+    if(stop_point.x != -1 && stop_point.y != -1) {
+      if(x >= stop_point.x && stop_point.x != -1 && y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
+        break;
       }
-      state.render.index_count += 6;
+    } else {
+      if(y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
+        break;
+      }
+    }
+    if(!culled && !no_render)  {
+      if(render_solid) {
+        lf_rect_render((vec2s){x, y}, (vec2s){last_x - x, get_max_char_height_font(font)}, color, LF_NO_COLOR, 0.0f, 0.0f);
+      } else {
+        renderer_add_glyph(q, max_descended_char_height, color, tex_index); 
+      }
       last_x = x;
     }
+    ret.rendered_count++;
   }
 
   // Populating the return value
