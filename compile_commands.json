@@ -1,0 +1,33 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Ivendor/glad/include",
+      "-Ivendor/stb_image/",
+      "-Ivendor/stb_truetype",
+      "-Ivendor/stb_image_resize",
+      "-DLF_GLFW",
+      "-O3",
+      "-ffast-math",
+      "-c",
+      "-o",
+      "lib/leif.o",
+      "leif.c"
+    ],
+    "directory": "/home/cococry/dev/leif",
+    "file": "/home/cococry/dev/leif/leif.c",
+    "output": "/home/cococry/dev/leif/lib/leif.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-o",
+      "lib/glad.o",
+      "vendor/glad/src/glad.c"
+    ],
+    "directory": "/home/cococry/dev/leif",
+    "file": "/home/cococry/dev/leif/vendor/glad/src/glad.c",
+    "output": "/home/cococry/dev/leif/lib/glad.o"
+  }
+]

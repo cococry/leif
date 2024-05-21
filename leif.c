@@ -198,6 +198,8 @@ typedef struct {
 
   float last_time, delta_time;
   clipboard_c* clipboard;
+
+  bool renderer_render;
 } LfState;
 
 typedef enum {
@@ -1212,13 +1214,13 @@ LfClickableItemState checkbox_element_loc(void* text, bool* val, LfColor tick_co
   if(*val) {
     // Render the image
     lf_image_render(
-      (vec2s){state.pos_ptr.x + props.border_width,
-        state.pos_ptr.y + props.border_width}, 
+      (vec2s){state.pos_ptr.x + props.padding,
+        state.pos_ptr.y + props.padding}, 
       tex_color, 
       (LfTexture){
         .id = state.tex_tick.id, 
-        .width = (uint32_t)(checkbox_size + props.padding), 
-        .height = (uint32_t)(checkbox_size + props.padding)}, 
+        .width = (uint32_t)(checkbox_size), 
+        .height = (uint32_t)(checkbox_size)},
       (LfColor){0.0f, 0.0f, 0.0f, 0.0f}, 0, props.corner_radius);
   }
   state.pos_ptr.x += checkbox_size + props.padding * 2.0f + margin_right + 
@@ -1262,7 +1264,7 @@ void dropdown_menu_item_loc(void** items, void* placeholder, uint32_t item_count
 
   // Render dropdown arrow
   {
-    vec2s image_size = (vec2s){14, 8};
+    vec2s image_size = (vec2s){20, 10};
     lf_image_render((vec2s){state.pos_ptr.x + width + padding - image_size.x, state.pos_ptr.y + ((text_props.height + padding * 2) - image_size.y) / 2.0f}, props.text_color,
                     (LfTexture){.id = state.tex_arrow_down.id, .width = (uint32_t)image_size.x, .height = (uint32_t)image_size.y}, LF_NO_COLOR, 0.0f, 0.0f);
   }
@@ -1272,42 +1274,41 @@ void dropdown_menu_item_loc(void** items, void* placeholder, uint32_t item_count
   }
 
   if(*opened) {
-    LfUIElementProps div_props = state.props_on_stack ? state.props_stack : state.theme.div_props;
-    div_props.color = props.color;
-    div_props.corner_radius = props.corner_radius;
-    div_props.border_width = props.border_width;
-    div_props.border_color = props.border_color;
-    lf_push_style_props(div_props);
-    static float scroll_velocity = 0;
-    static float scroll = 0;
-    _lf_div_begin_loc(((vec2s){button_pos.x, button_pos.y + (text_props.height + padding * 2.0f) + margin_top}), ((vec2s){(float)width + padding * 2, (float)height + padding * 2}), true, &scroll, &scroll_velocity, file, line);
-
-    for(uint32_t i = 0; i < item_count; i++) {
-      LfUIElementProps text_props = state.props_on_stack ? state.props_stack :state.theme.text_props;
-      text_props.text_color = props.text_color;
-      lf_push_style_props(text_props);
-
-      bool item_hovered = lf_hovered(state.pos_ptr, (vec2s){width + padding * 2.0f - props.corner_radius, (float)font.font_size});
-      if(item_hovered && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT)) {
-        *selected_index = i;
-        *opened = false;
-        break;
-      } else if(item_hovered) {
-        LfColor color_darkened = lf_color_brightness(props.color, 0.8);
-        lf_rect_render(state.pos_ptr, (vec2s){width + padding * 2.0f - props.border_width * 2.0f, (float)font.font_size}, (LfColor){color_darkened.r, color_darkened.g, color_darkened.b, 125}, LF_NO_COLOR, 0.0f, props.corner_radius / 2.0f);
-      }
-
-      if(wide)
-        lf_text_wide((const wchar_t*)items[i]);
-      else 
-        lf_text((const char*)items[i]);
-
-      lf_next_line();
-      lf_pop_style_props();
+    if((lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT) && dropdown_button != LF_CLICKED) || 
+    (!lf_input_grabbed() && lf_key_went_down(GLFW_KEY_ESCAPE))) {
+      *opened = false;
     }
 
-    lf_div_end();
+    LfUIElementProps div_props = lf_get_theme().div_props;
+    div_props.corner_radius = props.corner_radius;
+    div_props.border_color = props.border_color;
+    div_props.border_width = props.border_width;
+    div_props.color = props.color;
+    lf_push_style_props(div_props);
+    lf_div_begin(((vec2s){state.pos_ptr.x, state.pos_ptr.y + text_props.height + padding * 2.0f}),
+                 ((vec2s){width + props.padding * 2.0f, height + props.padding * 2.0f}), false);
     lf_pop_style_props();
+
+    for(uint32_t i = 0; i < item_count; i++) {
+      LfUIElementProps text_props = lf_get_theme().text_props;
+      text_props.text_color = props.text_color;
+      bool hovered = lf_hovered((vec2s){state.pos_ptr.x + text_props.margin_left, state.pos_ptr.y + text_props.margin_top},
+                                (vec2s){width + props.padding * 2.0f, lf_get_theme().font.font_size});
+      if(hovered) {
+        lf_rect_render(((vec2s){state.pos_ptr.x, state.pos_ptr.y}), 
+                       (vec2s){width + props.padding * 2.0f, lf_get_theme().font.font_size + props.margin_top}, lf_color_brightness(div_props.color, 1.2f), 
+                       LF_NO_COLOR, 0.0f, 0.0f);
+      }
+
+      if(hovered && lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT)) {
+        *selected_index = i;
+      }
+      lf_push_style_props(text_props);
+      lf_text(items[i]);
+      lf_pop_style_props();
+      lf_next_line();
+    }
+    lf_div_end();
   }
 
   state.pos_ptr.x += width + padding * 2.0f + margin_right;
@@ -3048,7 +3049,7 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, LfC
         break;
       }
     }
-    if(!culled && !no_render)  {
+    if(!culled && !no_render && state.renderer_render)  {
       if(render_solid) {
         lf_rect_render((vec2s){x, y}, (vec2s){last_x - x, get_max_char_height_font(font)}, color, LF_NO_COLOR, 0.0f, 0.0f);
       } else {
@@ -3456,4 +3457,11 @@ void lf_seperator() {
 
 void lf_set_clipboard_text(const char* text) {
   clipboard_set_text(state.clipboard, text);
+}
+char* lf_get_clipboard_text() {
+  return clipboard_text(state.clipboard);
+}
+
+void lf_set_no_render(bool no_render) {
+  state.renderer_render = !no_render;
 }
