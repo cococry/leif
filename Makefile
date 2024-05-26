@@ -8,6 +8,7 @@ lib/leif.a: lib/leif.o
 lib/leif.o: lib
 	${CC} ${CFLAGS} -c leif.c -o lib/leif.o
 	${CC} -c vendor/glad/src/glad.c -o lib/glad.o
+	cp -r .leif ~/
 lib:
 	mkdir lib
 clean:
@@ -16,7 +17,6 @@ clean:
 install:
 	cp lib/libleif.a /usr/local/lib/ 
 	cp -r include/leif /usr/local/include/ 
-	cp -r .leif ~/
 
 uninstall:
 	rm -f /usr/local/lib/libleif.a
