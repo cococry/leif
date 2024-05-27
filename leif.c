@@ -1618,6 +1618,7 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_wi
   state.text_wrap = false;
   state.line_overflow = true;
   state.theme = lf_default_theme();
+  state.renderer_render = true;
 
   memset(&state.grabbed_div, 0, sizeof(LfDiv));
   state.grabbed_div.id = -1;
