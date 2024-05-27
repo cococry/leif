@@ -191,6 +191,9 @@ is written entirely with leif. You can see a brief look at of the application be
 
 <img src="https://github.com/cococry/lyssa/blob/main/branding/lyssa-showcase.png" width="1000px"/> 
 
+A task management app that i also wrote with the leif library:
+<img src="https://github.com/cococry/todo/blob/main/branding/todo-showcase.png" width="1000px"/> 
+
 ## Contributing
 
 You can contribute to Leif by:
