@@ -3073,6 +3073,7 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, LfC
 }
 
 void lf_rect_render(vec2s pos, vec2s size, LfColor color, LfColor border_color, float border_width, float corner_radius) {
+  if(!state.renderer_render) return;
   if(item_should_cull((LfAABB){.pos = pos, .size = size})) {
     return;
   }
@@ -3143,6 +3144,7 @@ void lf_rect_render(vec2s pos, vec2s size, LfColor color, LfColor border_color, 
 }
 
 void lf_image_render(vec2s pos, LfColor color, LfTexture tex, LfColor border_color, float border_width, float corner_radius) {
+  if(!state.renderer_render) return;
   if(item_should_cull((LfAABB){.pos = pos, .size = (vec2s){tex.width, tex.height}})) {
     return;
   }
