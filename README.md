@@ -37,37 +37,14 @@ that the library ueses is OpenGL.
 *: This library is an optional library and will be replacable with other libraries
 
 
-## Building
+## Installation
 
-Building the static library should be as easy as installing the dependencies and executing the Makefile.
-
-### Aur (paru/yay)
+Installing the library is made very easy by the use of an install script:
 ```console
-paru -S libleif
+git clone https://github.com/cococry/leif
+cd leif
+./install.sh
 ```
-
-#### Install the dependencies (Arch)
-```console
-sudo pacman -S gcc make glfw cglm
-```
-
-#### Install the dependencies (Debian)
-```console
-sudo apt install gcc make libglfw3 libglfw3-dev libcglm-dev
-```
-
-### Building the library
-
-#### Generate static library
-```console
-make
-```
-
-#### Install the library 
-```console 
-sudo make install 
-```
-
 
 ## Usage
 
