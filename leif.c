@@ -64,6 +64,7 @@
 #define LF_ASSERT(cond, ...)
 #endif // _DEBUG
 
+#define LF_STACK_INIT_CAP 4
 
 #ifdef LF_GLFW
 #define MAX_KEYS GLFW_KEY_LAST
@@ -148,6 +149,11 @@ typedef struct {
 } RenderState;
 
 typedef struct {
+  LfUIElementProps* data;
+  uint32_t count, cap;
+} PropsStack;
+
+typedef struct {
   bool init;
 
   // Window
@@ -165,10 +171,11 @@ typedef struct {
 
   // Pushable variables
   LfFont* font_stack, *prev_font_stack;
-  LfUIElementProps props_stack, div_props, prev_props_stack;
+  LfUIElementProps div_props, prev_props_stack;
   LfColor image_color_stack;
   int64_t element_id_stack;
-  bool props_on_stack;
+
+  PropsStack props_stack;
 
   // Event references 
   LfKeyEvent key_ev;
@@ -266,6 +273,15 @@ static void                     update_input();
 static void                     clear_events();
 
 static uint64_t                 djb2_hash(uint64_t hash, const void* buf, size_t size);
+
+static void                     props_stack_create(PropsStack* stack); 
+static void                     props_stack_resize(PropsStack* stack, uint32_t newcap); 
+static void                     props_stack_push(PropsStack* stack, LfUIElementProps props); 
+static LfUIElementProps         props_stack_pop(PropsStack* stack); 
+static LfUIElementProps         props_stack_peak(PropsStack* stack); 
+static bool                     props_stack_empty(PropsStack* stack);
+
+static LfUIElementProps         get_props_for(LfUIElementProps props);
 
 // --- Static Functions --- 
 uint32_t shader_create(GLenum type, const char* src) {
@@ -697,7 +713,7 @@ void draw_scrollbar_on(LfDiv* div) {
     state.scrollbar_div = *div;
     LfDiv* selected = div;
     float scroll = *state.scroll_ptr;
-    LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.scrollbar_props;
+    LfUIElementProps props = get_props_for(state.theme.scrollbar_props);
 
     selected->total_area.x = state.pos_ptr.x;
     selected->total_area.y = state.pos_ptr.y + state.div_props.corner_radius;
@@ -737,7 +753,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
     input->_init = true;
   }
 
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.inputfield_props;
+  LfUIElementProps props = get_props_for(state.theme.inputfield_props);
   LfFont font = get_current_font();
 
   state.pos_ptr.x += props.margin_left; 
@@ -1079,7 +1095,7 @@ LfFont get_current_font() {
 
 LfClickableItemState button_element_loc(void* text, const char* file, int32_t line, bool wide) {
   // Retrieving the property data of the button
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float padding = props.padding;
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
@@ -1121,7 +1137,7 @@ LfClickableItemState button_element_loc(void* text, const char* file, int32_t li
 }
 LfClickableItemState button_fixed_element_loc(void* text, float width, float height, const char* file, int32_t line, bool wide) {
   // Retrieving the property data of the button
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float padding = props.padding;
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom;
@@ -1177,7 +1193,7 @@ LfClickableItemState button_fixed_element_loc(void* text, float width, float hei
 LfClickableItemState checkbox_element_loc(void* text, bool* val, LfColor tick_color, LfColor tex_color, const char* file, int32_t line, bool wide) {
   // Retrieving the property values of the checkbox
   LfFont font = get_current_font();
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.checkbox_props;
+  LfUIElementProps props = get_props_for(state.theme.checkbox_props);
   float margin_left = props.margin_left;
   float margin_right = props.margin_right;
   float margin_top = props.margin_top;
@@ -1231,7 +1247,7 @@ LfClickableItemState checkbox_element_loc(void* text, bool* val, LfColor tick_co
 
 }
 void dropdown_menu_item_loc(void** items, void* placeholder, uint32_t item_count, float width, float height, int32_t* selected_index, bool* opened, const char* file, int32_t line, bool wide) {
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom;
   float padding = props.padding;
@@ -1318,7 +1334,7 @@ void dropdown_menu_item_loc(void** items, void* placeholder, uint32_t item_count
 
 }
 int32_t menu_item_list_item_loc(void** items, uint32_t item_count, int32_t selected_index, LfMenuItemCallback per_cb, bool vertical, const char* file, int32_t line, bool wide) {
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float padding = props.padding;
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
@@ -1584,6 +1600,53 @@ uint64_t djb2_hash(uint64_t hash, const void* buf, size_t size) {
   return hash;
 }
 
+void props_stack_create(PropsStack* stack) {
+  stack->data = (LfUIElementProps*)malloc(LF_STACK_INIT_CAP * sizeof(LfUIElementProps));
+  if(!stack->data) {
+    LF_ERROR("Failed to allocate memory for stack data structure.\n");
+  }
+  stack->count = 0;
+  stack->cap = LF_STACK_INIT_CAP;
+}
+
+void props_stack_resize(PropsStack* stack, uint32_t newcap) {
+  LfUIElementProps* newdata = (LfUIElementProps*)realloc(stack->data, newcap * sizeof(LfUIElementProps));
+  if(!newdata) {
+    LF_ERROR("Failed to reallocate memory for stack datastructure.");
+  }
+  stack->data = newdata;
+  stack->cap = newcap;
+}
+
+void props_stack_push(PropsStack* stack, LfUIElementProps props) {
+  if(stack->count == stack->cap) {
+    props_stack_resize(stack, stack->cap * 2);
+  }
+  stack->data[stack->count++] = props;
+}
+
+LfUIElementProps props_stack_pop(PropsStack* stack) {
+  LF_ASSERT(stack.count != 0, "Stack underflow on stack data structure!");
+  LfUIElementProps val = stack->data[--stack->count];
+  if(stack->count > 0 && stack->count == stack->cap / 4) {
+    props_stack_resize(stack, stack->cap / 2);
+  }
+  return val;
+}
+
+LfUIElementProps props_stack_peak(PropsStack* stack) {
+  LF_ASSERT(stack.count != 0, "Stack is empty on stack data structure!");
+  return stack->data[stack->count - 1];
+}
+
+bool props_stack_empty(PropsStack* stack) {
+  return stack->count == 0;
+}
+
+LfUIElementProps get_props_for(LfUIElementProps props) {
+  return (!props_stack_empty(&state.props_stack)) ? props_stack_peak(&state.props_stack) : props; 
+}
+
 // ===========================================================
 // ----------------Public API Functions ---------------------- 
 // ===========================================================
@@ -1612,13 +1675,14 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_wi
   state.input.mouse.first_mouse_press = true;
   state.render.tex_count = 0;
   state.pos_ptr = (vec2s){0, 0};
-  state.props_on_stack = false;
   state.image_color_stack = LF_NO_COLOR;
   state.active_element_id = 0;
   state.text_wrap = false;
   state.line_overflow = true;
   state.theme = lf_default_theme();
   state.renderer_render = true;
+
+  props_stack_create(&state.props_stack);
 
   memset(&state.grabbed_div, 0, sizeof(LfDiv));
   state.grabbed_div.id = -1;
@@ -2249,11 +2313,10 @@ LfDiv* _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, 
 
   state.prev_pos_ptr = state.pos_ptr;
   state.prev_font_stack = state.font_stack;
-  state.prev_props_stack = state.props_stack;
   state.prev_line_height = state.current_line_height;
   state.prev_div = state.current_div;
 
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.div_props;
+  LfUIElementProps props = get_props_for(state.theme.div_props);
 
   state.div_props = props;
 
@@ -2299,7 +2362,6 @@ LfDiv* _lf_div_begin_loc(vec2s pos, vec2s size, bool scrollable, float* scroll, 
 
   state.current_line_height = 0;
   state.font_stack = NULL;
-  state.props_on_stack = false;
 
   return &state.current_div;
 }
@@ -2311,7 +2373,6 @@ void lf_div_end() {
 
   state.pos_ptr = state.prev_pos_ptr;
   state.font_stack = state.prev_font_stack;
-  state.props_stack = state.prev_props_stack;
   state.current_line_height = state.prev_line_height;
   state.current_div = state.prev_div;
   state.cull_start = (vec2s){-1, -1};
@@ -2320,7 +2381,7 @@ void lf_div_end() {
 
 
 LfClickableItemState _lf_item_loc(vec2s size, const char* file, int32_t line) {
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
 
   next_line_on_overflow(
     (vec2s){size.x + props.padding * 2.0f + props.margin_right + props.margin_left, 
@@ -2346,7 +2407,7 @@ LfClickableItemState _lf_button_wide_loc(const wchar_t* text, const char* file, 
 
 LfClickableItemState _lf_image_button_loc(LfTexture img, const char* file, int32_t line) {
   // Retrieving the property data of the button
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float padding = props.padding;
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
@@ -2381,7 +2442,7 @@ LfClickableItemState _lf_image_button_loc(LfTexture img, const char* file, int32
 
 LfClickableItemState _lf_image_button_fixed_loc(LfTexture img, float width, float height, const char* file, int32_t line) {
   // Retrieving the property data of the button
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float padding = props.padding;
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
@@ -2426,7 +2487,7 @@ LfClickableItemState _lf_button_fixed_loc_wide(const wchar_t* text, float width,
 
 LfClickableItemState _lf_slider_int_loc(LfSlider* slider, const char* file, int32_t line) {
   // Getting property data
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.slider_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom =props.margin_bottom;
 
@@ -2500,7 +2561,7 @@ LfClickableItemState _lf_slider_int_loc(LfSlider* slider, const char* file, int3
 
 LfClickableItemState _lf_progress_bar_val_loc(float width, float height, int32_t min, int32_t max, int32_t val, const char* file, int32_t line) {
   // Getting property data
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.slider_props;
+  LfUIElementProps props = get_props_for(state.theme.slider_props);
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
   // constants
@@ -2541,7 +2602,7 @@ LfClickableItemState _lf_progress_bar_val_loc(float width, float height, int32_t
 }
 LfClickableItemState _lf_progress_bar_int_loc(float val, float min, float max, float width, float height, const char* file, int32_t line) {
   // Getting property data
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.slider_props;
+  LfUIElementProps props = get_props_for(state.theme.slider_props);
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom = props.margin_bottom; 
   LfColor color = props.color;
@@ -2572,7 +2633,7 @@ LfClickableItemState _lf_progress_bar_int_loc(float val, float min, float max, f
 
 LfClickableItemState _lf_progress_stripe_int_loc(LfSlider* slider, const char* file, int32_t line) {
   // Getting property data
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.slider_props;
+  LfUIElementProps props = get_props_for(state.theme.slider_props);
   float margin_left = props.margin_left, margin_right = props.margin_right,
   margin_top = props.margin_top, margin_bottom =props.margin_bottom; 
 
@@ -2684,11 +2745,12 @@ LfDiv lf_get_grabbed_div() {
 void _lf_begin_loc(const char* file, int32_t line) {
   state.pos_ptr = (vec2s){0, 0};
   renderer_begin();
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.div_props; 
+  LfUIElementProps props = get_props_for(state.theme.div_props);
   props.color = (LfColor){0, 0, 0, 0};
   lf_push_style_props(props);
 
   lf_div_begin(((vec2s){0, 0}), ((vec2s){(float)state.dsp_w, (float)state.dsp_h}), true);
+
   lf_pop_style_props();
 }
 void lf_end() {
@@ -2731,7 +2793,7 @@ vec2s lf_text_dimension_wide_ex(const wchar_t* str, float wrap_point) {
 }
 
 vec2s lf_button_dimension(const char* text) {
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   float padding = props.padding;
   vec2s text_dimension = lf_text_dimension(text);
   return (vec2s){text_dimension.x + padding * 2.0f, text_dimension.y + padding};
@@ -2745,7 +2807,7 @@ float lf_get_text_end(const char* str, float start_x) {
 
 void lf_text(const char* text) {
   // Retrieving the property data of the text
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.text_props;
+  LfUIElementProps props = get_props_for(state.theme.text_props);
   float padding = props.padding;
   float margin_left = props.margin_left, margin_right = props.margin_right, 
   margin_top = props.margin_top, margin_bottom = props.margin_bottom;
@@ -2785,7 +2847,7 @@ void lf_text(const char* text) {
 
 void lf_text_wide(const wchar_t* text) {
   // Retrieving the property data of the text
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.text_props;
+  LfUIElementProps props = get_props_for(state.theme.text_props);
   float padding = props.padding;
   float margin_left = props.margin_left, margin_right = props.margin_right, 
   margin_top = props.margin_top, margin_bottom = props.margin_bottom;
@@ -3261,12 +3323,11 @@ bool lf_aabb_intersects_aabb(LfAABB a, LfAABB b) {
 }
 
 void lf_push_style_props(LfUIElementProps props) {
-  state.props_stack = props;
-  state.props_on_stack = true;
+  props_stack_push(&state.props_stack, props);
 }
 
 void lf_pop_style_props() {
-  state.props_on_stack = false;
+  props_stack_pop(&state.props_stack);
 }
 
 bool lf_hovered(vec2s pos, vec2s size) {
@@ -3411,7 +3472,7 @@ LfColor lf_color_from_zto(vec4s zto) {
 
 void lf_image(LfTexture tex) {
   // Retrieving the property data of the image
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.image_props;
+  LfUIElementProps props = get_props_for(state.theme.image_props);
   float margin_left = props.margin_left, margin_right = props.margin_right, 
   margin_top = props.margin_top, margin_bottom = props.margin_bottom;
   LfColor color = props.color;
@@ -3444,7 +3505,7 @@ void lf_rect(float width, float height, LfColor color, float corner_radius) {
 
 void lf_seperator() {
   lf_next_line();
-  LfUIElementProps props = state.props_on_stack ? state.props_stack : state.theme.button_props;
+  LfUIElementProps props = get_props_for(state.theme.button_props);
   state.pos_ptr.x += props.margin_left;
   state.pos_ptr.y += props.margin_top;
 
