@@ -1418,7 +1418,7 @@ void insert_i_str(char *str, char ch, int32_t index) {
   int len = strlen(str);
 
   if (index < 0 || index > len) {
-    printf("Invalid string index for inserting.\n");
+    LF_ERROR("Invalid string index for inserting.\n");
     return;
   }
 
@@ -1435,7 +1435,7 @@ void insert_str_str(char* source, const char* insert, int32_t index) {
   int insert_len = strlen(insert);
 
   if (index < 0 || index > source_len) {
-    printf("Index out of bounds\n");
+    LF_ERROR("Index for inserting out of bounds\n");
     return;
   }
 
