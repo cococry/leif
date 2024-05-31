@@ -1,5 +1,20 @@
 #!/bin/sh
 
+get_opengl_version() {
+  glxinfo | grep "OpenGL version string" | awk '{print $4}'
+}
+
+REQUIRED_VERSION="4.5"
+CURRENT_VERSION=$(get_opengl_version)
+
+if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$CURRENT_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
+  echo "Your OpenGL version is $CURRENT_VERSION. OpenGL version $REQUIRED_VERSION or higher is required."
+  echo "Please update your OpenGL drivers."
+  exit 1
+fi
+
+echo "OpenGL $CURRENT_VERSION is sufficient."
+
 if ! pkg-config cglm; then
 echo "cglm not found on the system"
 echo "building cglm"
