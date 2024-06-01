@@ -207,6 +207,8 @@ int main() {
 }
 ```
 
+<img src="https://github.com/cococry/Leif/blob/main/branding/ui-elements.png" width=375px/> 
+
 ## Building your project
 
 To build your project, link it with leif and its depdencies.
