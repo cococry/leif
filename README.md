@@ -1,26 +1,26 @@
 # leif
 
-## Overview
+## Highlights
 
-Leif is a minimal and powerful immediate UI library/framework written in pure C. The library uses OpenGL for rendering interfaces. 
-The focus of this library is to be performant, easy to use and [suckless](https://suckless.org/philosophy/). Leif uses batch rendering for 
-displaying GPU accelerated user interfaces. 
+Leif is UI in C/C++ made easy. The library is designed to be really easy to setup and provide maximal functionality.
+All of that while retaining a consice and readable codebase.
 
-### stb-like library
+#### Theming & Styling support
+The library comes with a fully-featured property system where each UI element can be customized
+to your liking. Every visible part of your UI can be configured in no time.
 
-The Leif UI library is contained in only one C Source- and one C Header-file. This is done for providing the easiest possible way to work 
-with Leif. But because the library has a few dependencies, it is prepackaged into a static library that the user can then link to.
+#### Exposed Rendering API
+Leif comes with a very performant inhouse batch renderer. The renderers drawing API is fully exposed 
+to the user. This expands the scope of application of the library a lot as you can also utilize it
+for various non-UI components of your project. 
 
-### Features
+#### Exposed State
+The UI state of leif is nearly completly exposed to the user which, with the rendering system, 
+makes it really easy to add new UI components client-side.
 
-Leif comes with a ton of customizablity options and theming. The Element Property System in Leif allows the user to create any UI that 
-comes to mind. The library provides lots of UI elements like input fields, buttons text labels, images etc. 
-
-The library provides a complete Div Container System out of the box with which the user can seperate different parts of the UI into contained 
-fields. The user can scroll inside every div which creates lots of possiblities to create UI systems.
-
-In the backend, Leif uses a highly efficient batch renderer that can render textures, text and colored geometry in one batch. The rendering backend 
-that the library ueses is OpenGL. 
+#### Complete Input-Handling System
+The library contains an input subsystem that can be utilized by the user for various different 
+tasks (eg. is_key_down, is_mouse_button_released, etc.) which makes development a whole lot easier.
 
 
 ### Dependencies
@@ -55,111 +55,164 @@ lf_init_glfw(displayWidth, displayHeight, glfwWindow);
 
 Within the main loop of your program, call the lf_begin() and lf_end() functions within which you can render UI elements.
 
-#### A simple example of some UI elements:
+#### Simple hello-world application with GLFW for windowing
 ```c
-lf_begin();
-lf_text("Hello Leif!");
+#include <GLFW/glfw3.h>
+#include <leif/leif.h>
 
-lf_next_line();
+int main() {
+  glfwInit();
+  GLFWwindow* window = glfwCreateWindow(800, 600, "Hello", NULL, NULL);
 
-if(lf_button("Close") == LF_CLICKED) {
-  glfwSetWindowShouldClose(window, true);
+  glfwMakeContextCurrent(window);
+
+  lf_init_glfw(800, 600, window);
+
+  while(!glfwWindowShouldClose(window)) {
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+
+    lf_begin();
+
+    lf_text("Hello, Leif!");
+
+    lf_end();
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+  }
+  lf_terminate();
+  glfwDestroyWindow(window);
+  glfwTerminate();
 }
-if(lf_button("Show Text") == LF_CLICKED) {
-  showText = !showText;
-}
-if(showText) {
-  lf_next_line();
-  lf_text_wide(L"Привет");
-}
-lf_end();
 ```
 <img src="https://github.com/cococry/Leif/blob/main/branding/ui-elements.png" width=375px/> 
 
-#### Styling & Positioning Elements
+#### Hello-World Plus
 ```c
-lf_begin();
-for(uint32_t i = 0; i < 4; i++) {
-  const char* buttonText = "Start App";
+#include <GLFW/glfw3.h>
+#include <leif/leif.h>
 
-  LfUIElementProps props = lf_theme()->button_props;
-  props.margin_left = 0;
-  props.margin_top = 20;
-  props.color = RGB_COLOR(220, 220, 220);
-  props.text_color = LF_BLACK;
-  props.corner_radius = 3.5f;
-  props.border_width = 0.0f;
+static int winw = 800, winh = 800;
 
-  lf_push_style_props(props);
-
-  lf_set_ptr_x_absolute((displayWidth - lf_button_dimension(buttonText).x) / 2.0f);
-  lf_button(buttonText);
-
-  lf_pop_style_props();
-
-  lf_next_line();
+static void resizecb(GLFWwindow* window, int w, int h) {
+  winw = w;
+  winh = h;
+  glViewport(0, 0, w, h);
+  // Resize the leif display on window resize
+  lf_resize_display(w, h);
 }
-lf_end();
-```
 
-<img src="https://github.com/cococry/Leif/blob/main/branding/styling-elements.png" width=375px/> 
+int main() {
+  glfwInit();
+  GLFWwindow* window = glfwCreateWindow(winw, winh, "Hello", NULL, NULL);
 
-#### Working with Div Containers
-```c
-static LfTexture appleTexture = lf_load_texture("apple.png", false, LF_TEX_FILTER_LINEAR);
+  glfwMakeContextCurrent(window);
 
-lf_begin();
+  glfwSetFramebufferSizeCallback(window, resizecb);
 
-LfUIElementProps div_props = lf_theme()->div_props;
-div_props.border_width = 3;
-div_props.border_color = LF_BLUE;
-div_props.corner_radius = 6;
-lf_push_style_props(div_props);
+  lf_init_glfw(winw, winh, window);
 
-lf_div_begin((vec2s){10, 150}, (vec2s){300, 300}, true);
+  // Loading a bigger font (replace /home/cococry with your user)
+  LfFont bigfont = lf_load_font("/home/cococry/.leif/assets/fonts/inter.ttf", 50);
 
-lf_pop_style_props();
+  while(!glfwWindowShouldClose(window)) {
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 
-for(uint32_t i = 0; i < 10; i++) {
-  if(i % 2 == 0) {
-    LfUIElementProps props = lf_theme()->button_props;
-    props.border_width = 0;
-    props.color = LF_WHITE;
-    props.text_color = LF_BLACK;
-    props.corner_radius = 3;
+    // Starting leif context
+    lf_begin();
 
-    lf_push_style_props(props);
+    const char* text = "Hello, Leif!";
+    const char* btntext = "Exit";
 
-    lf_push_element_id(i);
-    lf_button("Button");
-    lf_pop_element_id();
+    // Defining properties of the button
+    LfUIElementProps btnprops = lf_get_theme().button_props;
+    btnprops.margin_left = 0.0f; btnprops.margin_top = 15.0f; btnprops.border_width = 0.0f; btnprops.corner_radius = 9.0f;
+    btnprops.text_color = LF_WHITE;
+    btnprops.color = (LfColor){90, 90, 90, 255};
 
-    lf_pop_style_props();
-  } else {
-    lf_image((LfTexture){.id = appleTexture.id, .width = 64, .height = 64});
+    // Beginnig a new container
+    {
+      // Styling the container (setting corner radius)
+      LfUIElementProps props = lf_get_theme().div_props;
+      props.corner_radius = 10.0f;
+      lf_push_style_props(props);
+
+      // Positioning the container in the center
+      float width = 400.0f, height = 400.0f;
+      lf_div_begin(((vec2s){(winw - width) / 2.0f, (winh - height) / 2.0f}), ((vec2s){width, height}), false);
+
+      // Popping the container's props again
+      lf_pop_style_props();
+    }
+
+    /* Text */
+    {
+      // Setting big font
+      lf_push_font(&bigfont);
+      // Center the text horizontally
+      lf_set_ptr_x_absolute((winw - lf_text_dimension(text).x) / 2.0f);
+      // Center the text (and button) vertically
+      lf_set_ptr_y_absolute((winh - (lf_text_dimension(text).y + lf_text_dimension(btntext).y + btnprops.padding * 2.0f + btnprops.margin_top)) / 2.0f);
+
+      // Remove any margin
+      LfUIElementProps props = lf_get_theme().text_props;
+      props.margin_left = 0.0f; props.margin_right = 0.0f;
+      // Push the style props
+      lf_push_style_props(props);
+
+      // Render the text
+      lf_text(text);
+
+      // Pop the style props
+      lf_pop_style_props();
+
+      // Unsetting big font
+      lf_pop_font();
+    }
+
+    // Advance into the next line
+    lf_next_line();
+
+    /* Exit Button */
+    {
+      const float width = 180.0f;
+
+      lf_push_style_props(btnprops);
+      // Center the button horizontally
+      lf_set_ptr_x_absolute((winw - (width + btnprops.padding * 2.0f)) / 2.0f);
+
+      // Rendering a button with fixed scale (-1 stands for "use normal height")
+      if(lf_button_fixed(btntext, width, -1) == LF_CLICKED) {
+        // Closing the window when you pressed the button
+        glfwSetWindowShouldClose(window, 1);
+      }
+
+      lf_pop_style_props();
+    }
+
+    // Ending the container
+    lf_div_end();
+
+    // Ending leif context
+    lf_end();
+
+    glfwSwapBuffers(window);
+    glfwPollEvents();
   }
-  lf_next_line();
+
+  lf_terminate();
+  glfwDestroyWindow(window);
+  glfwTerminate();
 }
-lf_div_end();
-
-div_props.border_color = LF_RED;
-lf_push_style_props(div_props)  ;
-
-lf_div_begin((vec2s){350, 150}, (vec2s){200, 200}, true);
-
-lf_pop_style_props();
-
-for(uint32_t i = 0; i < 20; i++) {
-  lf_text("Div Test");
-  lf_next_line();
-}
-
-lf_div_end();
-
-lf_end();
 ```
 
-<img src="https://github.com/cococry/Leif/blob/main/branding/div-showcase.gif" width="375px"/> 
+## Building your project
+
+To build your project, link it with leif and its depdencies.
+```console
+gcc -o project project.c -lleif -lglfw -lm -lGL -lclipboard
+```
 
 ## Real world usage
 
