@@ -42,6 +42,8 @@ rm -rf libclipboard
 fi
 
 make -j$(nproc) && sudo make install
+cp -rf ./.leif ~/
+
 echo "====================="
 echo "INSTALLATION FINISHED"
 echo "====================="
