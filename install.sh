@@ -1,5 +1,33 @@
 #!/bin/sh
 
+
+# Function to install packages using apt (Debian/Ubuntu)
+install_with_apt() {
+    sudo apt update
+    sudo apt-get install mesa-utils
+}
+
+# Function to install packages using yum (Red Hat/CentOS)
+install_with_yum() {
+  sudo yum install glx-utils
+}
+
+# Function to install packages using pacman (Arch Linux)
+install_with_pacman() {
+    sudo pacman -Sy --noconfirm glxinfo
+}
+
+if [ -f /etc/arch-release ]; then
+  install_with_pacman
+elif [ -f /etc/debian_version ]; then
+  install_with_apt
+elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
+  install_with_yum
+else
+  echo "Your linux distro is not supported currently."
+  echo "You need to manually install those packages: exiftool, jq, glfw"
+fi
+
 get_opengl_version() {
   glxinfo | grep "OpenGL version string" | awk '{print $4}'
 }
