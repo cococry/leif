@@ -1044,8 +1044,15 @@ LfFont load_font(const char* filepath, uint32_t pixelsize, uint32_t tex_width, u
   long fileSize = ftell(file);
   fseek(file, 0, SEEK_SET);
   uint8_t* buffer = (uint8_t*)malloc(fileSize);
-  fread(buffer, 1, fileSize, file);
+  size_t bytesRead = fread(buffer, 1, fileSize, file);
   fclose(file); 
+  if (bytesRead != fileSize) {
+    LF_ERROR("Failed to read font file '%s'\n", filepath);
+    // Handle the error (e.g., free memory and return from the function)
+    free(buffer);
+    LfFont emptyFont = {0}; // Or whatever initialization you need
+    return emptyFont;
+}
   font.font_info = malloc(sizeof(stbtt_fontinfo));
 
   // Initializing the font with stb_truetype
