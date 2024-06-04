@@ -123,6 +123,12 @@ typedef struct {
   double xscroll_delta, yscroll_delta;
 } LfMouse;
 
+typedef struct {
+    bool is_dragging;
+    vec2s start_cursor_pos;
+    float start_scroll;
+} DragState;
+
 // State of input 
 typedef struct {
   LfKeyboard keyboard;
@@ -206,7 +212,9 @@ typedef struct {
   float last_time, delta_time;
   clipboard_c* clipboard;
 
-  bool renderer_render;
+  bool renderer_render; 
+
+  DragState drag_state;
 } LfState;
 
 typedef enum {
@@ -707,9 +715,10 @@ bool item_should_cull(LfAABB item) {
   return false;
 }
 
+
 void draw_scrollbar_on(LfDiv* div) {
   lf_next_line();
-  if(state.current_div.id == div->id) {
+  if (state.current_div.id == div->id) {
     state.scrollbar_div = *div;
     LfDiv* selected = div;
     float scroll = *state.scroll_ptr;
@@ -718,30 +727,54 @@ void draw_scrollbar_on(LfDiv* div) {
     selected->total_area.x = state.pos_ptr.x;
     selected->total_area.y = state.pos_ptr.y + state.div_props.corner_radius;
 
-    if(*state.scroll_ptr < -((div->total_area.y - *state.scroll_ptr) - div->aabb.pos.y - div->aabb.size.y) && *state.scroll_velocity_ptr < 0 && state.theme.div_smooth_scroll) {
+    if (*state.scroll_ptr < -((div->total_area.y - *state.scroll_ptr) - div->aabb.pos.y - div->aabb.size.y) && *state.scroll_velocity_ptr < 0 && state.theme.div_smooth_scroll) {
       *state.scroll_velocity_ptr = 0;
       *state.scroll_ptr = -((div->total_area.y - *state.scroll_ptr) - div->aabb.pos.y - div->aabb.size.y);
     }
 
     float total_area = selected->total_area.y - scroll;
     float visible_area = selected->aabb.size.y + selected->aabb.pos.y;
-    if(total_area > visible_area) {
+    if (total_area > visible_area) {
       const float min_scrollbar_height = 20;
 
-      float area_mapped = visible_area/total_area; 
-      float scroll_mapped = (-1 * scroll)/total_area;
-      float scrollbar_height = MAX((selected->aabb.size.y*area_mapped - props.margin_top * 2), min_scrollbar_height);
+      float area_mapped = visible_area / total_area;
+      float scroll_mapped = (-1 * scroll) / total_area;
+      float scrollbar_height = MAX((selected->aabb.size.y * area_mapped - props.margin_top * 2), min_scrollbar_height);
 
-      lf_rect_render(
-        (vec2s){
-          selected->aabb.pos.x + selected->aabb.size.x - state.theme.scrollbar_width - props.margin_right - state.div_props.padding  - state.div_props.border_width,
-          MIN((selected->aabb.pos.y + selected->aabb.size.y*scroll_mapped + props.margin_top + state.div_props.padding + state.div_props.border_width + state.div_props.corner_radius), visible_area - scrollbar_height)}, 
-        (vec2s){
-          state.theme.scrollbar_width, 
-          scrollbar_height - state.div_props.border_width * 2 - state.div_props.corner_radius * 2}, 
-        props.color,
-        props.border_color, props.border_width, props.corner_radius);
-    } 
+      LfAABB scrollbar_area = (LfAABB){
+        .pos = (vec2s){
+          selected->aabb.pos.x + selected->aabb.size.x - state.theme.scrollbar_width - props.margin_right - state.div_props.padding - state.div_props.border_width,
+          MIN((selected->aabb.pos.y + selected->aabb.size.y * scroll_mapped + props.margin_top + state.div_props.padding + state.div_props.border_width + state.div_props.corner_radius),
+              visible_area - scrollbar_height)},
+        .size = (vec2s){
+          state.theme.scrollbar_width,
+          scrollbar_height - state.div_props.border_width * 2 - state.div_props.corner_radius * 2},
+      };
+
+      vec2s cursorpos = (vec2s){lf_get_mouse_x(), lf_get_mouse_y()};
+      if (lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT) && lf_hovered(scrollbar_area.pos, scrollbar_area.size)) {
+          state.drag_state.is_dragging = true;
+          state.drag_state.start_cursor_pos = cursorpos;
+          state.drag_state.start_scroll = *state.scroll_ptr;
+      } 
+      if(state.drag_state.is_dragging) {
+          float cursor_delta = (cursorpos.y - state.drag_state.start_cursor_pos.y);
+          float new_scroll = state.drag_state.start_scroll - cursor_delta * (total_area / visible_area);
+          *state.scroll_ptr = new_scroll;
+
+          if (*state.scroll_ptr > 0) {
+            *state.scroll_ptr = 0;
+          } else if (*state.scroll_ptr < -(total_area - visible_area)) {
+            *state.scroll_ptr = -(total_area - visible_area);
+          }
+      }
+      if (lf_mouse_button_is_released(GLFW_MOUSE_BUTTON_LEFT)) {
+        state.drag_state.is_dragging = false;
+      }
+
+      lf_rect_render(scrollbar_area.pos, scrollbar_area.size,
+                     props.color, props.border_color, props.border_width, props.corner_radius);
+    }
   }
 }
 
@@ -1688,6 +1721,7 @@ void lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw_wi
   state.line_overflow = true;
   state.theme = lf_default_theme();
   state.renderer_render = true;
+  state.drag_state = (DragState){ false, {0, 0}, 0 };
 
   props_stack_create(&state.props_stack);
 
