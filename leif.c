@@ -3049,24 +3049,25 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, LfC
 
   // Retrieving the texture index
   float tex_index = -1.0f;
-  if(!culled && !no_render) {
-    if(state.render.tex_count - 1 >= MAX_TEX_COUNT_BATCH - 1) {
+  if (!culled && !no_render) {
+    if (state.render.tex_count - 1 >= MAX_TEX_COUNT_BATCH - 1) {
       renderer_flush();
       renderer_begin();
     }
-    for(uint32_t i = 0; i < state.render.tex_count; i++) {
-      if(state.render.textures[i].id == font.bitmap.id) {
+    for (uint32_t i = 0; i < state.render.tex_count; i++) {
+      if (state.render.textures[i].id == font.bitmap.id) {
         tex_index = (float)i;
         break;
       }
     }
-    if(tex_index == -1.0f) {
+    if (tex_index == -1.0f) {
       tex_index = (float)state.render.tex_index;
       LfTexture tex = font.bitmap;
       state.render.textures[state.render.tex_count++] = tex;
       state.render.tex_index++;
     }
   }
+
   // Local variables needed for rendering
   LfTextProps ret = {0};
   float x = pos.x;
@@ -3080,58 +3081,85 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, LfC
   float width = 0;
 
   uint32_t i = 0;
-  for(; str[i] != L'\0'; i++) {
-    if(str[i] >= font.num_glyphs) continue;
-    if(stbtt_FindGlyphIndex((const stbtt_fontinfo*)font.font_info, str[i]-32) == 0 && 
-      str[i] != L' ' && str[i] != L'\n' && str[i] != L'\t' && !iswdigit(str[i]) && !iswpunct(str[i]))  {
+  while (str[i] != L'\0') {
+    if (str[i] >= font.num_glyphs) {
+      i++;
       continue;
     }
-    if(i >= end_index && end_index != -1) {
+    if (stbtt_FindGlyphIndex((const stbtt_fontinfo*)font.font_info, str[i] - 32) == 0 && 
+      str[i] != L' ' && str[i] != L'\n' && str[i] != L'\t' && !iswdigit(str[i]) && !iswpunct(str[i])) {
+      i++;
+      continue;
+    }
+    if (i >= end_index && end_index != -1) {
       break;
     }
-    // If the current character is a new line or the wrap point has been reached, advance to the next line
-    if(str[i] == L'\n' || (x >= wrap_point && wrap_point != -1)) {
+
+    // Calculate the width of the next word
+    float word_width = 0;
+    uint32_t j = i;
+    while (str[j] != L' ' && str[j] != L'\n' && str[j] != L'\0') {
+      stbtt_aligned_quad q;
+      stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, str[j] - 32, &word_width, &y, &q, 0);
+      j++;
+    }
+
+    // If the next word exceeds the wrap point, move to the next line
+    if (x + word_width > wrap_point && wrap_point != -1) {
       y += font.font_size;
       height += font.font_size;
-      if(x - pos.x > width) {
+      if (x - pos.x > width) {
         width = x - pos.x;
       }
       x = pos.x;
       last_x = x;
-      if(str[i] == L' ') {
-        continue;
-      }
     }
-    // Retrieving the vertex data of the current character & submitting it to the batch  
-    stbtt_aligned_quad q;
-    stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, str[i]-32, &x, &y, &q, 1);
-    if(i < start_index && start_index != -1) {
+
+    // If the current character is a new line, advance to the next line
+    if (str[i] == L'\n') {
+      y += font.font_size;
+      height += font.font_size;
+      if (x - pos.x > width) {
+        width = x - pos.x;
+      }
+      x = pos.x;
       last_x = x;
-      ret.rendered_count++;
+      i++;
       continue;
     }
-    if(stop_point.x != -1 && stop_point.y != -1) {
-      if(x >= stop_point.x && stop_point.x != -1 && y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
+
+    // Retrieving the vertex data of the current character & submitting it to the batch
+    stbtt_aligned_quad q;
+    stbtt_GetBakedQuad((stbtt_bakedchar*)font.cdata, font.tex_width, font.tex_height, str[i] - 32, &x, &y, &q, 1);
+    if (i < start_index && start_index != -1) {
+      last_x = x;
+      ret.rendered_count++;
+      i++;
+      continue;
+    }
+    if (stop_point.x != -1 && stop_point.y != -1) {
+      if (x >= stop_point.x && stop_point.x != -1 && y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
         break;
       }
     } else {
-      if(y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
+      if (y + get_max_char_height_font(font) >= stop_point.y && stop_point.y != -1) {
         break;
       }
     }
-    if(!culled && !no_render && state.renderer_render)  {
-      if(render_solid) {
+    if (!culled && !no_render && state.renderer_render) {
+      if (render_solid) {
         lf_rect_render((vec2s){x, y}, (vec2s){last_x - x, get_max_char_height_font(font)}, color, LF_NO_COLOR, 0.0f, 0.0f);
       } else {
-        renderer_add_glyph(q, max_descended_char_height, color, tex_index); 
+        renderer_add_glyph(q, max_descended_char_height, color, tex_index);
       }
       last_x = x;
     }
     ret.rendered_count++;
+    i++;
   }
 
   // Populating the return value
-  if(x - pos.x > width) {
+  if (x - pos.x > width) {
     width = x - pos.x;
   }
   ret.width = width;
@@ -3139,7 +3167,7 @@ LfTextProps lf_text_render_wchar(vec2s pos, const wchar_t* str, LfFont font, LfC
   ret.end_x = x;
   ret.end_y = y;
   return ret;
-}
+ }
 
 void lf_rect_render(vec2s pos, vec2s size, LfColor color, LfColor border_color, float border_width, float corner_radius) {
   if(!state.renderer_render) return;
