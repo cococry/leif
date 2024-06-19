@@ -439,7 +439,7 @@ void renderer_init() {
 
   // Creating the shader for the batch renderer
   const char* vert_src =
-    "#version 460 core\n"
+    "#version 450 core\n"
     "layout (location = 0) in vec2 a_pos;\n"
     "layout (location = 1) in vec4 a_border_color;\n"
     "layout (location = 2) in float a_border_width;\n"
@@ -480,7 +480,7 @@ void renderer_init() {
     "}\n";
 
 
-  const char* frag_src = "#version 460 core\n"
+  const char* frag_src = "#version 450 core\n"
     "out vec4 o_color;\n"
     "in vec4 v_color;\n"
     "in float v_tex_index;\n"
