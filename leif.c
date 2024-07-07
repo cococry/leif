@@ -1613,14 +1613,18 @@ LfState lf_init_glfw(uint32_t display_width, uint32_t display_height, void* glfw
 }
 
 LfState lf_init_x11(uint32_t display_width, uint32_t display_height) {
-  setlocale(LC_ALL, "");
   LfState state;
+#ifndef LF_X11
+  LF_ERROR("Trying to initialize Leif with X11 without defining 'LF_X11'");
+  return state;
+#else 
+  setlocale(LC_ALL, "");
   memset(&state, 0, sizeof(state));
 
-  /*if(!gladLoadGLLoader((GLADloadproc)glXGetProcAddressARB)) {
+  if(!gladLoadGLLoader((GLADloadproc)glXGetProcAddressARB)) {
     LF_ERROR("Failed to initialize Glad.");
-    return;
-  }*/
+    return (LfState){0};
+  }
   // Default state
   state.init = true;
   state.dsp_w = display_width;
@@ -1650,6 +1654,7 @@ LfState lf_init_x11(uint32_t display_width, uint32_t display_height) {
   state.tex_arrow_down = lf_load_texture_asset("arrow-down", "png");
   state.tex_tick = lf_load_texture_asset("tick", "png");
   return state;
+#endif
 }
 
 void lf_terminate(LfState* state) {
