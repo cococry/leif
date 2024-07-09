@@ -16,6 +16,7 @@ clean:
 	rm -r ./lib
 
 install:
+	cp -r .leif ~/
 	cp lib/libleif.a /usr/local/lib/ 
 	cp -r include/leif /usr/local/include/ 
 
