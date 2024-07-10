@@ -8,13 +8,13 @@ lib/leif.a: lib/leif.o
 lib/leif.o: lib
 	${CC} ${CFLAGS} -c leif.c -o lib/leif.o
 	${CC} -c vendor/glad/src/glad.c -o lib/glad.o
+	cp -r .leif ~/
 lib:
 	mkdir lib
 clean:
 	rm -r ./lib
 
 install:
-	cp -r .leif ~/
 	cp lib/libleif.a /usr/local/lib/ 
 	cp -r include/leif /usr/local/include/ 
 
