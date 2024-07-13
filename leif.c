@@ -2952,12 +2952,13 @@ static wchar_t* str_to_wstr(const char* str) {
   wchar_t* wstr = (wchar_t*)malloc(len * sizeof(wchar_t));
   if (wstr == NULL) {
     LF_ERROR("Memory allocation for wstring conversion failed.");
-    return NULL;
+    wcscpy(wstr, L"Cannot render");
+    return wstr;
   }
   if (mbstowcs(wstr, str, len) == (size_t)-1) {
     LF_ERROR("Conversion from wstring to string failed.");
-    free(wstr);
-    return NULL;
+    wcscpy(wstr, L"Cannot render");
+    return wstr;
   }
 
   return wstr;
