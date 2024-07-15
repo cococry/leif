@@ -973,6 +973,7 @@ void input_field(LfInputField* input, InputFieldType type, const char* file, int
 
         }
         case GLFW_KEY_X: {
+          if (!lf_key_is_down(GLFW_KEY_LEFT_CONTROL)) break;
           char selection[strlen(input->buf)];
           memset(selection, 0, strlen(input->buf));
           substr_str(input->buf, input->selection_start, input->selection_end, selection);
