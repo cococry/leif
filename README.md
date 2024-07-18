@@ -3,7 +3,7 @@
 ## Highlights
 
 Leif is UI in C/C++ made easy. The library is designed to be really easy to setup and provide maximal functionality.
-All of that while retaining a consice and readable codebase.
+All of that while retaining a concise and readable codebase.
 
 #### Theming & Styling support
 The library comes with a fully-featured property system where each UI element can be customized
