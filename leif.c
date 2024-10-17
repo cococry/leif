@@ -2222,12 +2222,12 @@ void lf_free_font(LfFont* font) {
 }
 
 LfFont lf_load_font_asset(const char* asset_name, const char* file_extension, uint32_t font_size) {
-  char leif_dir[strlen(getenv(HOMEDIR)) + strlen("/.leif")];
+  char leif_dir[strlen(getenv(HOMEDIR)) + strlen("/.leif") + 1];
   memset(leif_dir, 0, sizeof(leif_dir));
   strcat(leif_dir, getenv(HOMEDIR));
   strcat(leif_dir, "/.leif");
 
-  char path[strlen(leif_dir) + strlen("/assets/fonts/") + strlen(asset_name) + strlen(".") + strlen(file_extension)];
+  char path[strlen(leif_dir) + strlen("/assets/fonts/") + strlen(asset_name) + strlen(".") + strlen(file_extension) + 1];
 
   memset(path, 0, sizeof(path));
   strcat(path, leif_dir);
@@ -2240,12 +2240,12 @@ LfFont lf_load_font_asset(const char* asset_name, const char* file_extension, ui
 }
 
 LfTexture lf_load_texture_asset(const char* asset_name, const char* file_extension) {
-  char leif_dir[strlen(getenv(HOMEDIR)) + strlen("/.leif")];
+  char leif_dir[strlen(getenv(HOMEDIR)) + strlen("/.leif") + 1];
   memset(leif_dir, 0, sizeof(leif_dir));
   strcat(leif_dir, getenv(HOMEDIR));
   strcat(leif_dir, "/.leif");
 
-  char path[strlen(leif_dir) + strlen("/assets/textures/") + strlen(asset_name) + strlen(".") + strlen(file_extension)];
+  char path[strlen(leif_dir) + strlen("/assets/textures/") + strlen(asset_name) + strlen(".") + strlen(file_extension) + 1];
   memset(path, 0, sizeof(path));
   strcat(path, leif_dir);
   strcat(path, "/assets/textures/");
